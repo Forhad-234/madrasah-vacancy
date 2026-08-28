@@ -73,27 +73,45 @@ function convertSheetDataToMadrasaFormat(values) {
     console.log('📋 Processing headers:', headers);
     console.log('📋 Header count:', headers.length);
     
-    // Find column indices with EXACT matches for your sheet
-    const getColIndex = (name) => {
-        const idx = headers.findIndex(h => {
+    // Find column indices with BENGALI column names
+    const getColIndex = (englishName, bengaliName) => {
+        // Try English first
+        let idx = headers.findIndex(h => {
             if (!h) return false;
-            return h.trim() === name;
+            return h.trim() === englishName;
         });
-        console.log(`🔎 Column "${name}" found at index:`, idx);
+        
+        // Try Bengali
+        if (idx === -1) {
+            idx = headers.findIndex(h => {
+                if (!h) return false;
+                return h.trim() === bengaliName;
+            });
+        }
+        
+        // Try case insensitive
+        if (idx === -1) {
+            idx = headers.findIndex(h => {
+                if (!h) return false;
+                return h.toLowerCase().trim() === englishName.toLowerCase().trim();
+            });
+        }
+        
+        console.log(`🔎 Column "${englishName}" / "${bengaliName}" found at index:`, idx);
         return idx !== -1 ? idx : null;
     };
     
-    // Map each column with your EXACT header names
+    // Map each column with BENGALI headers
     const colMap = {
-        'SL': getColIndex('SL'),
-        'EIIN': getColIndex('EIIN'),
-        'MADRASHA-NAME': getColIndex('MADRASHA-NAME'),
-        'LEVEL': getColIndex('LEVEL'),
-        'POST-NAME': getColIndex('POST-NAME'),  // ← Exactly matches your column E
-        'SUBJECT': getColIndex('SUBJECT'),
-        'DIVISION': getColIndex('DIVISION'),
-        'DISTRICT': getColIndex('DISTRICT'),
-        'UPAZILLA/THANA': getColIndex('UPAZILLA/THANA')
+        'SL': getColIndex('SL', 'SL'),
+        'EIIN': getColIndex('EIIN', 'EIIN'),
+        'MADRASHA-NAME': getColIndex('MADRASHA-NAME', 'মাদ্রাসার নাম'),
+        'LEVEL': getColIndex('LEVEL', 'লেভেল'),
+        'POST-NAME': getColIndex('POST-NAME', 'পদ'),
+        'SUBJECT': getColIndex('SUBJECT', 'বিষয়'),
+        'DIVISION': getColIndex('DIVISION', 'বিভাগ'),
+        'DISTRICT': getColIndex('DISTRICT', 'জেলা'),
+        'UPAZILLA/THANA': getColIndex('UPAZILLA/THANA', 'উপজেলা/থানা')
     };
     
     console.log('🗺️ Column mapping:', colMap);
