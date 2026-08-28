@@ -12,7 +12,6 @@ const CONFIG = {
 async function loadDataFromSheet() {
     console.log('🔍 Getting sheet metadata...');
     
-    // First, get the list of sheets to find the correct sheet name
     const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}?key=${CONFIG.API_KEY}`;
     
     try {
@@ -20,10 +19,8 @@ async function loadDataFromSheet() {
         const metaData = await metaResponse.json();
         console.log('📋 Sheet metadata:', metaData);
         
-        // Get the first sheet's title (or find your sheet by name)
         let sheetTitle = metaData.sheets?.[0]?.properties?.title || 'Sheet1';
         
-        // Try to find your specific sheet if it exists
         const yourSheet = metaData.sheets?.find(s => 
             s.properties.title.includes('Madrasah') || 
             s.properties.title.includes('Vacancy')
@@ -34,7 +31,6 @@ async function loadDataFromSheet() {
         
         console.log(`📄 Using sheet name: "${sheetTitle}"`);
         
-        // Now fetch the data using the correct sheet name
         const encodedSheetName = encodeURIComponent(sheetTitle);
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodedSheetName}?key=${CONFIG.API_KEY}`;
         console.log('🔍 Fetching data from:', url);
@@ -57,6 +53,7 @@ async function loadDataFromSheet() {
         
         console.log(`✅ Found ${data.values.length} rows (including header)`);
         console.log('📋 Headers:', data.values[0]);
+        console.log('📋 First data row:', data.values[1]);
         
         return convertSheetDataToMadrasaFormat(data.values);
     } catch (error) {
@@ -100,15 +97,6 @@ function convertSheetDataToMadrasaFormat(values) {
     
     console.log('🗺️ Column mapping:', colMap);
     
-    // Check if any required columns are missing
-    const missingCols = Object.entries(colMap)
-        .filter(([key, val]) => val === null)
-        .map(([key]) => key);
-    
-    if (missingCols.length > 0) {
-        console.warn('⚠️ Missing columns:', missingCols);
-    }
-    
     // Use fallback mapping for missing columns
     const fallbackMap = {
         'SL': 0,
@@ -132,14 +120,7 @@ function convertSheetDataToMadrasaFormat(values) {
     
     const columnNames = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
     
-    // Build dicts
-    const dicts = {};
-    columnNames.forEach(col => {
-        const idx = colMap[col];
-        dicts[col] = rows.map(row => (row && row[idx] !== undefined && row[idx] !== '') ? String(row[idx]) : '');
-    });
-    
-    // Build rows array
+    // Build rows array first
     const rowData = rows.map((row, idx) => {
         return columnNames.map(col => {
             const idx2 = colMap[col];
@@ -147,6 +128,16 @@ function convertSheetDataToMadrasaFormat(values) {
             return col === 'SL' && !val ? String(idx + 1) : val;
         });
     });
+    
+    // Build dicts AFTER rows are built
+    const dicts = {};
+    columnNames.forEach((col, colIndex) => {
+        dicts[col] = rowData.map(row => row[colIndex] || '');
+    });
+    
+    console.log('📊 Dicts built:', Object.keys(dicts));
+    console.log('📊 Sample dict (MADRASHA-NAME):', dicts['MADRASHA-NAME']?.slice(0, 3));
+    console.log('📊 Sample dict (LEVEL):', dicts['LEVEL']?.slice(0, 3));
     
     const result = {
         columns: columnNames,
@@ -221,6 +212,13 @@ function showError(message) {
     }
     
     console.log('✅ Data loaded successfully, initializing app...');
+    console.log('📊 Data structure:', {
+        columns: D.columns,
+        rowsCount: D.rows.length,
+        dictsKeys: Object.keys(D.dicts),
+        sampleRow: D.rows[0]
+    });
+    
     window.MADRASA_DATA = D;
     
     // ===== ORIGINAL CODE =====
@@ -229,7 +227,13 @@ function showError(message) {
     const dict = D.dicts;
     const ix = Object.fromEntries(C.map((c, i) => [c, i]));
     
-    const v = (c, n) => dict[c][n];
+    console.log('🔑 Index mapping:', ix);
+    
+    const v = (c, n) => {
+        const val = dict[c]?.[n];
+        // console.log(`v(${c}, ${n}) =`, val);
+        return val || '';
+    };
     const $ = x => document.getElementById(x);
     
     let state = { rows: R, page: 1, size: 25 };
@@ -238,7 +242,10 @@ function showError(message) {
     $("heroCount").textContent = R.length.toLocaleString("bn-BD");
     
     function unique(c) {
-        return [...new Set(R.map(r => v(c, r[ix[c]])))].sort((a, b) => a.localeCompare(b));
+        const values = R.map(r => v(c, r[ix[c]]));
+        const uniqueValues = [...new Set(values)].sort((a, b) => a.localeCompare(b));
+        console.log(`📊 Unique values for ${c}:`, uniqueValues.slice(0, 5));
+        return uniqueValues;
     }
     
     function fill(id, c) {
@@ -296,7 +303,14 @@ function showError(message) {
             let r = a[i], tr = document.createElement("tr");
             ["SL", "EIIN", "MADRASHA-NAME", "LEVEL", "POST-NAME", "SUBJECT", "DIVISION", "DISTRICT", "UPAZILLA/THANA"].forEach((c, j) => {
                 let td = document.createElement("td");
-                td.textContent = j < 2 ? r[ix[c]] : v(c, r[ix[c]]);
+                // For SL and EIIN, use direct value from row
+                if (j < 2) {
+                    td.textContent = r[ix[c]] || '';
+                } else {
+                    // For other columns, use dict lookup
+                    const val = v(c, r[ix[c]]);
+                    td.textContent = val || '';
+                }
                 tr.append(td);
             });
             tb.append(tr);
