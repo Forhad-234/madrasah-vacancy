@@ -71,62 +71,50 @@ function convertSheetDataToMadrasaFormat(values) {
     const rows = values.slice(1);
     
     console.log('📋 Processing headers:', headers);
-    console.log('📋 Header count:', headers.length);
     
-    // Find column indices with BENGALI column names
-    const getColIndex = (englishName, bengaliName) => {
-        // Try English first
-        let idx = headers.findIndex(h => {
-            if (!h) return false;
-            return h.trim() === englishName;
-        });
-        
-        // Try Bengali
-        if (idx === -1) {
-            idx = headers.findIndex(h => {
-                if (!h) return false;
-                return h.trim() === bengaliName;
-            });
-        }
-        
-        // Try case insensitive
-        if (idx === -1) {
-            idx = headers.findIndex(h => {
-                if (!h) return false;
-                return h.toLowerCase().trim() === englishName.toLowerCase().trim();
-            });
-        }
-        
-        console.log(`🔎 Column "${englishName}" / "${bengaliName}" found at index:`, idx);
-        return idx !== -1 ? idx : null;
-    };
+    // ============================================
+    // POSITION-BASED MAPPING (MOST RELIABLE)
+    // ============================================
+    // Assumes columns are in this order:
+    // Col 0: SL
+    // Col 1: EIIN  
+    // Col 2: MADRASHA-NAME
+    // Col 3: LEVEL
+    // Col 4: POST-NAME
+    // Col 5: SUBJECT
+    // Col 6: DIVISION
+    // Col 7: DISTRICT
+    // Col 8: UPAZILLA/THANA
     
-    // Map each column with BENGALI headers
     const colMap = {
-        'SL': getColIndex('SL', 'SL'),
-        'EIIN': getColIndex('EIIN', 'EIIN'),
-        'MADRASHA-NAME': getColIndex('MADRASHA-NAME', 'মাদ্রাসার নাম'),
-        'LEVEL': getColIndex('LEVEL', 'লেভেল'),
-        'POST-NAME': getColIndex('POST-NAME', 'পদ'),
-        'SUBJECT': getColIndex('SUBJECT', 'বিষয়'),
-        'DIVISION': getColIndex('DIVISION', 'বিভাগ'),
-        'DISTRICT': getColIndex('DISTRICT', 'জেলা'),
-        'UPAZILLA/THANA': getColIndex('UPAZILLA/THANA', 'উপজেলা/থানা')
+        'SL': 0,           // Column A
+        'EIIN': 1,         // Column B
+        'MADRASHA-NAME': 2, // Column C
+        'LEVEL': 3,        // Column D
+        'POST-NAME': 4,    // Column E
+        'SUBJECT': 5,      // Column F
+        'DIVISION': 6,     // Column G
+        'DISTRICT': 7,     // Column H
+        'UPAZILLA/THANA': 8 // Column I
     };
     
-    console.log('🗺️ Column mapping:', colMap);
+    // OVERRIDE: Try to find headers by position
+    console.log('📋 Headers found:');
+    headers.forEach((h, i) => {
+        console.log(`  Column ${i}: "${h}"`);
+    });
     
     const columnNames = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
     
-    // Build rows array
+    // Build rows array using position-based mapping
     const rowData = rows.map((row, idx) => {
-        return columnNames.map(col => {
+        return columnNames.map((col, colIndex) => {
             const idx2 = colMap[col];
             let val = '';
-            if (idx2 !== null && row && row[idx2] !== undefined && row[idx2] !== '') {
+            if (row && row[idx2] !== undefined && row[idx2] !== '') {
                 val = String(row[idx2]);
             }
-            // If SL column doesn't exist or is empty, use row index + 1
+            // If SL column is empty, use row index + 1
             if (col === 'SL' && !val) {
                 val = String(idx + 1);
             }
@@ -140,11 +128,11 @@ function convertSheetDataToMadrasaFormat(values) {
         dicts[col] = rowData.map(row => row[colIndex] || '');
     });
     
-    console.log('📊 Dicts built:', Object.keys(dicts));
-    console.log('📊 Sample dict (MADRASHA-NAME):', dicts['MADRASHA-NAME']?.slice(0, 3));
-    console.log('📊 Sample dict (LEVEL):', dicts['LEVEL']?.slice(0, 3));
-    console.log('📊 Sample dict (POST-NAME):', dicts['POST-NAME']?.slice(0, 3));
-    console.log('📊 Sample dict (DIVISION):', dicts['DIVISION']?.slice(0, 3));
+    console.log('📊 Sample row:', rowData[0]);
+    console.log('📊 Sample MADRASHA-NAME:', dicts['MADRASHA-NAME']?.slice(0, 3));
+    console.log('📊 Sample LEVEL:', dicts['LEVEL']?.slice(0, 3));
+    console.log('📊 Sample POST-NAME:', dicts['POST-NAME']?.slice(0, 3));
+    console.log('📊 Sample DIVISION:', dicts['DIVISION']?.slice(0, 3));
     
     const result = {
         columns: columnNames,
@@ -153,7 +141,6 @@ function convertSheetDataToMadrasaFormat(values) {
     };
     
     console.log(`✅ Converted ${rowData.length} rows successfully`);
-    console.log('📊 Sample row:', rowData[0]);
     
     return result;
 }
@@ -184,11 +171,6 @@ function showError(message) {
                         <div style="background:#f7fafc;padding:15px;border-radius:8px;margin-top:10px;font-size:12px;overflow:auto;">
                             <p><strong>API Key:</strong> ${CONFIG.API_KEY.slice(0, 10)}...${CONFIG.API_KEY.slice(-5)}</p>
                             <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID}</p>
-                            <p style="color:#e53e3e;margin-top:10px;">
-                                ⚠️ নিশ্চিত করুন:<br>
-                                1. Sheet টি "Anyone with link can view" এ সেট করা আছে<br>
-                                2. Google Sheets API টি Enable করা আছে
-                            </p>
                         </div>
                     </details>
                 </td>
@@ -198,18 +180,16 @@ function showError(message) {
 }
 
 // ============================================
-// ORIGINAL APP LOGIC (MODIFIED)
+// ORIGINAL APP LOGIC
 // ============================================
 (async function init() {
     console.log('🚀 App starting...');
     
-    // Show loading state
     const totalEl = document.getElementById('total');
     const heroCountEl = document.getElementById('heroCount');
     if (totalEl) totalEl.textContent = '⏳ লোডিং...';
     if (heroCountEl) heroCountEl.textContent = '⏳';
     
-    // Load data from Google Sheets
     const D = await loadDataFromSheet();
     
     if (!D) {
@@ -217,23 +197,13 @@ function showError(message) {
         return;
     }
     
-    console.log('✅ Data loaded successfully, initializing app...');
-    console.log('📊 Data structure:', {
-        columns: D.columns,
-        rowsCount: D.rows.length,
-        dictsKeys: Object.keys(D.dicts),
-        sampleRow: D.rows[0]
-    });
-    
+    console.log('✅ Data loaded successfully');
     window.MADRASA_DATA = D;
     
-    // ===== ORIGINAL CODE =====
     const C = D.columns;
     const R = D.rows;
     const dict = D.dicts;
     const ix = Object.fromEntries(C.map((c, i) => [c, i]));
-    
-    console.log('🔑 Index mapping:', ix);
     
     const v = (c, n) => {
         const val = dict[c]?.[n];
