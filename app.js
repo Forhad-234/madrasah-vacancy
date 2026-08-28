@@ -71,24 +71,25 @@ function convertSheetDataToMadrasaFormat(values) {
     const rows = values.slice(1);
     
     console.log('📋 Processing headers:', headers);
+    console.log('📋 Header count:', headers.length);
     
-    // Find column indices (case insensitive)
+    // Find column indices with EXACT matches for your sheet
     const getColIndex = (name) => {
         const idx = headers.findIndex(h => {
             if (!h) return false;
-            return h.toLowerCase().trim() === name.toLowerCase().trim();
+            return h.trim() === name;
         });
         console.log(`🔎 Column "${name}" found at index:`, idx);
         return idx !== -1 ? idx : null;
     };
     
-    // Map each column
+    // Map each column with your EXACT header names
     const colMap = {
         'SL': getColIndex('SL'),
         'EIIN': getColIndex('EIIN'),
         'MADRASHA-NAME': getColIndex('MADRASHA-NAME'),
         'LEVEL': getColIndex('LEVEL'),
-        'POST-NAME': getColIndex('POST-NAME'),
+        'POST-NAME': getColIndex('POST-NAME'),  // ← Exactly matches your column E
         'SUBJECT': getColIndex('SUBJECT'),
         'DIVISION': getColIndex('DIVISION'),
         'DISTRICT': getColIndex('DISTRICT'),
@@ -97,39 +98,25 @@ function convertSheetDataToMadrasaFormat(values) {
     
     console.log('🗺️ Column mapping:', colMap);
     
-    // Use fallback mapping for missing columns
-    const fallbackMap = {
-        'SL': 0,
-        'EIIN': 1,
-        'MADRASHA-NAME': 2,
-        'LEVEL': 3,
-        'POST-NAME': 4,
-        'SUBJECT': 5,
-        'DIVISION': 6,
-        'DISTRICT': 7,
-        'UPAZILLA/THANA': 8
-    };
-    
-    // Use fallback for missing columns
-    Object.keys(colMap).forEach(key => {
-        if (colMap[key] === null && fallbackMap[key] !== undefined) {
-            colMap[key] = fallbackMap[key];
-            console.log(`🔄 Using fallback for "${key}" at index ${fallbackMap[key]}`);
-        }
-    });
-    
     const columnNames = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
     
-    // Build rows array first
+    // Build rows array
     const rowData = rows.map((row, idx) => {
         return columnNames.map(col => {
             const idx2 = colMap[col];
-            const val = (row && row[idx2] !== undefined && row[idx2] !== '') ? String(row[idx2]) : '';
-            return col === 'SL' && !val ? String(idx + 1) : val;
+            let val = '';
+            if (idx2 !== null && row && row[idx2] !== undefined && row[idx2] !== '') {
+                val = String(row[idx2]);
+            }
+            // If SL column doesn't exist or is empty, use row index + 1
+            if (col === 'SL' && !val) {
+                val = String(idx + 1);
+            }
+            return val;
         });
     });
     
-    // Build dicts AFTER rows are built
+    // Build dicts
     const dicts = {};
     columnNames.forEach((col, colIndex) => {
         dicts[col] = rowData.map(row => row[colIndex] || '');
@@ -138,6 +125,8 @@ function convertSheetDataToMadrasaFormat(values) {
     console.log('📊 Dicts built:', Object.keys(dicts));
     console.log('📊 Sample dict (MADRASHA-NAME):', dicts['MADRASHA-NAME']?.slice(0, 3));
     console.log('📊 Sample dict (LEVEL):', dicts['LEVEL']?.slice(0, 3));
+    console.log('📊 Sample dict (POST-NAME):', dicts['POST-NAME']?.slice(0, 3));
+    console.log('📊 Sample dict (DIVISION):', dicts['DIVISION']?.slice(0, 3));
     
     const result = {
         columns: columnNames,
@@ -180,8 +169,7 @@ function showError(message) {
                             <p style="color:#e53e3e;margin-top:10px;">
                                 ⚠️ নিশ্চিত করুন:<br>
                                 1. Sheet টি "Anyone with link can view" এ সেট করা আছে<br>
-                                2. Google Sheets API টি Enable করা আছে<br>
-                                3. API Key টি Google Sheets API এর জন্য Restrict করা নেই
+                                2. Google Sheets API টি Enable করা আছে
                             </p>
                         </div>
                     </details>
@@ -231,7 +219,6 @@ function showError(message) {
     
     const v = (c, n) => {
         const val = dict[c]?.[n];
-        // console.log(`v(${c}, ${n}) =`, val);
         return val || '';
     };
     const $ = x => document.getElementById(x);
@@ -243,7 +230,7 @@ function showError(message) {
     
     function unique(c) {
         const values = R.map(r => v(c, r[ix[c]]));
-        const uniqueValues = [...new Set(values)].sort((a, b) => a.localeCompare(b));
+        const uniqueValues = [...new Set(values)].filter(x => x).sort((a, b) => a.localeCompare(b));
         console.log(`📊 Unique values for ${c}:`, uniqueValues.slice(0, 5));
         return uniqueValues;
     }
@@ -303,11 +290,9 @@ function showError(message) {
             let r = a[i], tr = document.createElement("tr");
             ["SL", "EIIN", "MADRASHA-NAME", "LEVEL", "POST-NAME", "SUBJECT", "DIVISION", "DISTRICT", "UPAZILLA/THANA"].forEach((c, j) => {
                 let td = document.createElement("td");
-                // For SL and EIIN, use direct value from row
                 if (j < 2) {
                     td.textContent = r[ix[c]] || '';
                 } else {
-                    // For other columns, use dict lookup
                     const val = v(c, r[ix[c]]);
                     td.textContent = val || '';
                 }
@@ -321,7 +306,9 @@ function showError(message) {
         let counts = {};
         state.rows.forEach(r => {
             let x = v(c, r[ix[c]]);
-            counts[x] = (counts[x] || 0) + 1;
+            if (x) {
+                counts[x] = (counts[x] || 0) + 1;
+            }
         });
         let top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, n);
         let max = top[0]?.[1] || 1;
