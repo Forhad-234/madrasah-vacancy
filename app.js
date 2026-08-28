@@ -13,19 +13,31 @@ const CONFIG = {
 async function loadDataFromSheet() {
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${CONFIG.SHEET_NAME}?key=${CONFIG.API_KEY}`;
     
+    console.log('🔍 Fetching data from:', url);
+    
     try {
         const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        console.log('📡 Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
+        console.log('📊 Raw data received:', data);
         
         if (!data.values || data.values.length === 0) {
-            throw new Error('No data found in sheet');
+            throw new Error('No data found in sheet - check sheet name and permissions');
         }
+        
+        console.log(`✅ Found ${data.values.length} rows (including header)`);
+        console.log('📋 Headers:', data.values[0]);
+        console.log('📋 First data row:', data.values[1]);
         
         // Convert Google Sheets data to match expected format
         return convertSheetDataToMadrasaFormat(data.values);
     } catch (error) {
-        console.error('Failed to load data:', error);
+        console.error('❌ Failed to load data:', error);
         showError(error.message);
         return null;
     }
@@ -35,73 +47,127 @@ async function loadDataFromSheet() {
 // CONVERT SHEET DATA TO REQUIRED FORMAT
 // ============================================
 function convertSheetDataToMadrasaFormat(values) {
-    const headers = values[0]; // First row = column headers
-    const rows = values.slice(1); // Rest = data rows
+    const headers = values[0];
+    const rows = values.slice(1);
     
-    // Column indices (case insensitive)
-    const colIndex = (name) => {
-        const lowerName = name.toLowerCase();
-        return headers.findIndex(h => h.toLowerCase() === lowerName);
+    // Find column indices (case insensitive)
+    const getColIndex = (name) => {
+        const idx = headers.findIndex(h => h.toLowerCase().trim() === name.toLowerCase().trim());
+        console.log(`🔎 Column "${name}" found at index:`, idx);
+        return idx !== -1 ? idx : null;
     };
     
-    // Map to expected columns
-    const map = {
-        'SL': colIndex('SL') !== -1 ? colIndex('SL') : 0,
-        'EIIN': colIndex('EIIN') !== -1 ? colIndex('EIIN') : 1,
-        'MADRASHA-NAME': colIndex('MADRASHA-NAME') !== -1 ? colIndex('MADRASHA-NAME') : 2,
-        'LAVEL': colIndex('LAVEL') !== -1 ? colIndex('LAVEL') : 3,
-        'POST-NAME': colIndex('POST-NAME') !== -1 ? colIndex('POST-NAME') : 4,
-        'SUBJECT': colIndex('SUBJECT') !== -1 ? colIndex('SUBJECT') : 5,
-        'DIVISION': colIndex('DIVISION') !== -1 ? colIndex('DIVISION') : 6,
-        'DISTRICT': colIndex('DISTRICT') !== -1 ? colIndex('DISTRICT') : 7,
-        'UPAZILLA/THANA': colIndex('UPAZILLA/THANA') !== -1 ? colIndex('UPAZILLA/THANA') : 8
+    // Map each column - UPDATED: LAVEL → LEVEL
+    const colMap = {
+        'SL': getColIndex('SL'),
+        'EIIN': getColIndex('EIIN'),
+        'MADRASHA-NAME': getColIndex('MADRASHA-NAME'),
+        'LEVEL': getColIndex('LEVEL'),  // Changed from LAVEL
+        'POST-NAME': getColIndex('POST-NAME'),
+        'SUBJECT': getColIndex('SUBJECT'),
+        'DIVISION': getColIndex('DIVISION'),
+        'DISTRICT': getColIndex('DISTRICT'),
+        'UPAZILLA/THANA': getColIndex('UPAZILLA/THANA')
     };
     
-    const columnNames = ['SL', 'EIIN', 'MADRASHA-NAME', 'LAVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
+    console.log('🗺️ Column mapping:', colMap);
     
-    // Build dicts (for lookup by index)
+    // Check if any required columns are missing
+    const missingCols = Object.entries(colMap)
+        .filter(([key, val]) => val === null)
+        .map(([key]) => key);
+    
+    if (missingCols.length > 0) {
+        console.warn('⚠️ Missing columns:', missingCols);
+        // Try to map by position as fallback
+        const fallbackMap = {
+            'SL': 0,
+            'EIIN': 1,
+            'MADRASHA-NAME': 2,
+            'LEVEL': 3,  // Changed from LAVEL
+            'POST-NAME': 4,
+            'SUBJECT': 5,
+            'DIVISION': 6,
+            'DISTRICT': 7,
+            'UPAZILLA/THANA': 8
+        };
+        
+        // Use fallback for missing columns
+        Object.keys(colMap).forEach(key => {
+            if (colMap[key] === null && fallbackMap[key] !== undefined) {
+                colMap[key] = fallbackMap[key];
+                console.log(`🔄 Using fallback for "${key}" at index ${fallbackMap[key]}`);
+            }
+        });
+    }
+    
+    // Updated column names list
+    const columnNames = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
+    
+    // Build dicts
     const dicts = {};
     columnNames.forEach(col => {
-        dicts[col] = rows.map(row => row[map[col]] || '');
+        const idx = colMap[col];
+        dicts[col] = rows.map(row => (row && row[idx] !== undefined && row[idx] !== '') ? String(row[idx]) : '');
     });
     
-    // Build rows array (each row as array of values)
+    // Build rows array
     const rowData = rows.map((row, idx) => {
         return columnNames.map(col => {
-            const val = row[map[col]] || '';
-            // For SL, use index if empty
-            if (col === 'SL' && !val) return String(idx + 1);
-            return val;
+            const idx2 = colMap[col];
+            const val = (row && row[idx2] !== undefined && row[idx2] !== '') ? String(row[idx2]) : '';
+            return col === 'SL' && !val ? String(idx + 1) : val;
         });
     });
     
-    return {
+    const result = {
         columns: columnNames,
         dicts: dicts,
         rows: rowData
     };
+    
+    console.log(`✅ Converted ${rowData.length} rows successfully`);
+    console.log('📊 Sample row:', rowData[0]);
+    console.log('📊 Dict sample (LEVEL):', dicts.LEVEL.slice(0, 5));
+    
+    return result;
 }
 
 // ============================================
 // SHOW ERROR MESSAGE
 // ============================================
 function showError(message) {
+    console.error('🚨 Showing error:', message);
+    
     const heroCount = document.getElementById('heroCount');
     if (heroCount) heroCount.textContent = '⚠️';
+    
     const total = document.getElementById('total');
     if (total) total.textContent = 'Error';
     
-    // Show error in table
     const tbody = document.getElementById('tbody');
     if (tbody) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" style="text-align:center;padding:40px;color:#c53030;">
-                    <strong>❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>
-                    <span style="font-size:13px;color:#718096;">${message}</span><br>
-                    <span style="font-size:12px;color:#a0aec0;margin-top:10px;display:block;">
-                        অনুগ্রহ করে নিশ্চিত করুন যে Google Sheet-টি পাবলিক (Anyone with link can view)
+                <td colspan="9" style="text-align:center;padding:40px;font-family:monospace;">
+                    <strong style="color:#c53030;font-size:18px;">❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>
+                    <span style="color:#718096;font-size:14px;display:block;margin-top:10px;">
+                        ${message}
                     </span>
+                    <details style="margin-top:15px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;">
+                        <summary style="cursor:pointer;color:#4299e1;">🔧 Technical Details</summary>
+                        <div style="background:#f7fafc;padding:15px;border-radius:8px;margin-top:10px;font-size:12px;overflow:auto;">
+                            <p><strong>API Key:</strong> ${CONFIG.API_KEY.slice(0, 10)}...${CONFIG.API_KEY.slice(-5)}</p>
+                            <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID}</p>
+                            <p><strong>Sheet Name:</strong> ${CONFIG.SHEET_NAME}</p>
+                            <p style="color:#e53e3e;margin-top:10px;">
+                                ⚠️ নিশ্চিত করুন:<br>
+                                1. Sheet টি "Anyone with link can view" এ সেট করা আছে<br>
+                                2. Sheet এর নাম ঠিক আছে (Case Sensitive)<br>
+                                3. API Key টি Google Sheets API এর জন্য Enable করা আছে
+                            </p>
+                        </div>
+                    </details>
                 </td>
             </tr>
         `;
@@ -109,22 +175,27 @@ function showError(message) {
 }
 
 // ============================================
-// ORIGINAL APP LOGIC (MODIFIED TO USE ASYNC DATA)
+// ORIGINAL APP LOGIC (MODIFIED)
 // ============================================
 (async function init() {
+    console.log('🚀 App starting...');
+    
     // Show loading state
-    document.getElementById('total').textContent = '⏳';
+    document.getElementById('total').textContent = '⏳ লোডিং...';
     document.getElementById('heroCount').textContent = '⏳';
     
     // Load data from Google Sheets
     const D = await loadDataFromSheet();
     
-    if (!D) return; // Error already shown
+    if (!D) {
+        console.error('❌ No data returned, app cannot start');
+        return;
+    }
     
-    // Store in window for other functions to access
+    console.log('✅ Data loaded successfully, initializing app...');
     window.MADRASA_DATA = D;
     
-    // ===== ORIGINAL CODE (unchanged below) =====
+    // ===== ORIGINAL CODE =====
     const C = D.columns;
     const R = D.rows;
     const dict = D.dicts;
@@ -151,10 +222,11 @@ function showError(message) {
         });
     }
     
+    // Updated: LEVEL instead of LAVEL
     fill("division", "DIVISION");
     fill("district", "DISTRICT");
     fill("upazila", "UPAZILLA/THANA");
-    fill("level", "LAVEL");
+    fill("level", "LEVEL");  // Changed from LAVEL
     fill("post", "POST-NAME");
     fill("subject", "SUBJECT");
     
@@ -164,7 +236,7 @@ function showError(message) {
             "DIVISION": $("division").value,
             "DISTRICT": $("district").value,
             "UPAZILLA/THANA": $("upazila").value,
-            "LAVEL": $("level").value,
+            "LEVEL": $("level").value,  // Changed from LAVEL
             "POST-NAME": $("post").value,
             "SUBJECT": $("subject").value
         };
@@ -195,7 +267,8 @@ function showError(message) {
         tb.innerHTML = "";
         for (let i = st; i < en; i++) {
             let r = a[i], tr = document.createElement("tr");
-            ["SL", "EIIN", "MADRASHA-NAME", "LAVEL", "POST-NAME", "SUBJECT", "DIVISION", "DISTRICT", "UPAZILLA/THANA"].forEach((c, j) => {
+            // Updated: LEVEL instead of LAVEL
+            ["SL", "EIIN", "MADRASHA-NAME", "LEVEL", "POST-NAME", "SUBJECT", "DIVISION", "DISTRICT", "UPAZILLA/THANA"].forEach((c, j) => {
                 let td = document.createElement("td");
                 td.textContent = j < 2 ? r[ix[c]] : v(c, r[ix[c]]);
                 tr.append(td);
@@ -238,4 +311,5 @@ function showError(message) {
     
     dashboard();
     render();
+    console.log('✅ App initialized successfully!');
 })();
