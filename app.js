@@ -20,7 +20,6 @@ let pageSize = 25;
 async function loadDataFromSheet() {
     console.log('🔍 Fetching data from Google Sheets...');
     
-    // First, get the sheet metadata to find the correct sheet name
     const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}?key=${CONFIG.API_KEY}`;
     
     try {
@@ -28,11 +27,9 @@ async function loadDataFromSheet() {
         const metaData = await metaResponse.json();
         console.log('📋 Sheet metadata:', metaData);
         
-        // Get the first sheet title
         let sheetTitle = metaData.sheets?.[0]?.properties?.title || 'Sheet1';
         console.log(`📄 Using sheet name: "${sheetTitle}"`);
         
-        // Fetch the actual data
         const encodedSheetName = encodeURIComponent(sheetTitle);
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodedSheetName}?key=${CONFIG.API_KEY}`;
         console.log('🔍 Fetching data from:', url);
@@ -55,9 +52,13 @@ async function loadDataFromSheet() {
         
         console.log(`✅ Found ${data.values.length} rows (including header)`);
         console.log('📋 Headers:', data.values[0]);
-        console.log('📋 First data row:', data.values[1]);
         
-        // Store the data globally
+        // Log first 3 rows of data
+        console.log('📋 First data row:', data.values[1]);
+        console.log('📋 Second data row:', data.values[2]);
+        console.log('📋 Third data row:', data.values[3]);
+        
+        // Process the data
         processSheetData(data.values);
         
     } catch (error) {
@@ -73,48 +74,37 @@ function processSheetData(values) {
     const headers = values[0];
     const rows = values.slice(1);
     
-    console.log('📋 Processing data...');
-    console.log('📋 Headers found:', headers);
+    console.log('📋 Processing headers...');
     
-    // Show all headers with their indices
+    // Log each header with its index
+    console.log('📋 HEADER MAPPING:');
     headers.forEach((h, i) => {
         console.log(`  Column ${i}: "${h}"`);
     });
     
-    // Map column indices - TRY BOTH ENGLISH AND BENGALI
-    const getColIndex = (names) => {
-        for (const name of names) {
-            const idx = headers.findIndex(h => {
-                if (!h) return false;
-                return h.trim() === name;
-            });
-            if (idx !== -1) return idx;
-        }
-        // Try case insensitive
-        for (const name of names) {
-            const idx = headers.findIndex(h => {
-                if (!h) return false;
-                return h.toLowerCase().trim() === name.toLowerCase().trim();
-            });
-            if (idx !== -1) return idx;
-        }
-        return -1;
-    };
+    // ============================================
+    // CRITICAL: Define column mapping
+    // ============================================
+    const colMap = {};
     
-    // Map each column with multiple possible names
-    const colMap = {
-        'SL': getColIndex(['SL', 'S/L', 'Serial']),
-        'EIIN': getColIndex(['EIIN', 'EIN', 'Eiin']),
-        'MADRASHA-NAME': getColIndex(['মাদ্রাসার নাম', 'MADRASHA-NAME', 'Madrasha Name', 'NAME']),
-        'LEVEL': getColIndex(['লেভেল', 'LEVEL', 'Level', 'LAVEL']),
-        'POST-NAME': getColIndex(['পদ', 'POST-NAME', 'Post Name', 'POST']),
-        'SUBJECT': getColIndex(['বিষয়', 'SUBJECT', 'Subject']),
-        'DIVISION': getColIndex(['বিভাগ', 'DIVISION', 'Division']),
-        'DISTRICT': getColIndex(['জেলা', 'DISTRICT', 'District']),
-        'UPAZILLA/THANA': getColIndex(['উপজেলা/থানা', 'UPAZILLA/THANA', 'Upazilla', 'Thana', 'UPUZILLATHANA'])
-    };
+    // Try to find each column by name (case insensitive)
+    headers.forEach((h, i) => {
+        if (!h) return;
+        const clean = h.trim();
+        const lower = clean.toLowerCase();
+        
+        if (lower === 'sl' || lower === 's/l') colMap['SL'] = i;
+        else if (lower === 'eiin' || lower === 'ein') colMap['EIIN'] = i;
+        else if (lower === 'মাদ্রাসার নাম' || lower === 'madrasha-name' || lower === 'madrasha name') colMap['MADRASHA-NAME'] = i;
+        else if (lower === 'লেভেল' || lower === 'level') colMap['LEVEL'] = i;
+        else if (lower === 'পদ' || lower === 'post-name' || lower === 'post name') colMap['POST-NAME'] = i;
+        else if (lower === 'বিষয়' || lower === 'subject') colMap['SUBJECT'] = i;
+        else if (lower === 'বিভাগ' || lower === 'division') colMap['DIVISION'] = i;
+        else if (lower === 'জেলা' || lower === 'district') colMap['DISTRICT'] = i;
+        else if (lower === 'উপজেলা/থানা' || lower === 'upazilla/thana' || lower === 'upuzillathana') colMap['UPAZILLA/THANA'] = i;
+    });
     
-    console.log('🗺️ Column mapping:', colMap);
+    console.log('🗺️ Final Column Mapping:', colMap);
     
     // Build data array
     allData = rows.map((row, idx) => {
@@ -122,7 +112,7 @@ function processSheetData(values) {
         Object.keys(colMap).forEach(key => {
             const idx2 = colMap[key];
             let val = '';
-            if (idx2 !== -1 && row && row[idx2] !== undefined && row[idx2] !== '') {
+            if (idx2 !== undefined && row && row[idx2] !== undefined && row[idx2] !== '') {
                 val = String(row[idx2]);
             }
             // If SL is empty, use index + 1
@@ -135,10 +125,17 @@ function processSheetData(values) {
     });
     
     console.log('✅ Processed', allData.length, 'rows');
-    console.log('📊 Sample row:', allData[0]);
+    console.log('📊 Sample row (first record):', allData[0]);
     console.log('📊 Sample MADRASHA-NAME:', allData[0]?.['MADRASHA-NAME']);
     console.log('📊 Sample LEVEL:', allData[0]?.['LEVEL']);
     console.log('📊 Sample DIVISION:', allData[0]?.['DIVISION']);
+    console.log('📊 Sample DISTRICT:', allData[0]?.['DISTRICT']);
+    console.log('📊 Sample POST-NAME:', allData[0]?.['POST-NAME']);
+    console.log('📊 Sample SUBJECT:', allData[0]?.['SUBJECT']);
+    
+    // Check if data is empty
+    const hasData = allData.some(item => item['MADRASHA-NAME'] || item['LEVEL']);
+    console.log('📊 Has meaningful data?', hasData);
     
     // Initialize filtered data
     filteredData = [...allData];
@@ -168,7 +165,14 @@ function populateDropdowns() {
     Object.keys(fields).forEach(id => {
         const field = fields[id];
         const values = [...new Set(allData.map(item => item[field]).filter(v => v && v.trim()))].sort();
+        
         console.log(`📊 ${field} has ${values.length} unique values`);
+        if (values.length > 0) {
+            console.log(`📊 First 5 ${field} values:`, values.slice(0, 5));
+        } else {
+            console.log(`⚠️ WARNING: No values found for ${field}!`);
+            console.log(`   Check if column "${field}" exists in your sheet`);
+        }
         
         const select = document.getElementById(id);
         if (select) {
@@ -197,7 +201,6 @@ function updateStats() {
     document.getElementById('heroCount').textContent = total.toLocaleString('bn-BD');
     document.getElementById('result').textContent = filtered.toLocaleString('bn-BD');
     
-    // Unique districts and madrasas
     const districts = new Set(filteredData.map(item => item['DISTRICT']).filter(v => v && v.trim()));
     const madrasas = new Set(filteredData.map(item => item['MADRASHA-NAME']).filter(v => v && v.trim()));
     
@@ -213,7 +216,6 @@ function renderTable() {
     const end = Math.min(start + pageSize, filteredData.length);
     const pageData = filteredData.slice(start, end);
     
-    // Update pagination info
     const totalPages = Math.ceil(filteredData.length / pageSize);
     document.getElementById('range').textContent = filteredData.length ? 
         `(${(start + 1).toLocaleString('bn-BD')}–${end.toLocaleString('bn-BD')})` : '';
@@ -222,7 +224,6 @@ function renderTable() {
     document.getElementById('prev').disabled = currentPage <= 1;
     document.getElementById('next').disabled = currentPage >= totalPages;
     
-    // Render table rows
     const tbody = document.getElementById('tbody');
     tbody.innerHTML = '';
     
@@ -288,7 +289,6 @@ function applyFilters() {
     };
     
     filteredData = allData.filter(item => {
-        // Search filter
         if (searchText) {
             const searchable = [
                 item['EIIN'],
@@ -303,7 +303,6 @@ function applyFilters() {
             if (!searchable.includes(searchText)) return false;
         }
         
-        // Dropdown filters
         for (const [field, value] of Object.entries(filters)) {
             if (value && item[field] !== value) return false;
         }
@@ -334,19 +333,6 @@ function showError(message) {
                 <span style="color:#718096;font-size:14px;display:block;margin-top:10px;">
                     ${message}
                 </span>
-                <details style="margin-top:15px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;">
-                    <summary style="cursor:pointer;color:#4299e1;">🔧 Technical Details</summary>
-                    <div style="background:#f7fafc;padding:15px;border-radius:8px;margin-top:10px;font-size:12px;overflow:auto;">
-                        <p><strong>API Key:</strong> ${CONFIG.API_KEY.slice(0, 10)}...${CONFIG.API_KEY.slice(-5)}</p>
-                        <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID}</p>
-                        <p style="color:#e53e3e;margin-top:10px;">
-                            ⚠️ নিশ্চিত করুন:<br>
-                            1. Sheet টি "Anyone with link can view" এ সেট করা আছে<br>
-                            2. Google Sheets API টি Enable করা আছে<br>
-                            3. আপনার শীটের কলামের নাম ঠিক আছে
-                        </p>
-                    </div>
-                </details>
             </td>
         </tr>
     `;
@@ -369,11 +355,9 @@ function resetFilters() {
 async function init() {
     console.log('🚀 App starting...');
     
-    // Show loading state
     document.getElementById('total').textContent = '⏳ লোডিং...';
     document.getElementById('heroCount').textContent = '⏳';
     
-    // Set up event listeners
     document.getElementById('q').addEventListener('input', applyFilters);
     document.getElementById('division').addEventListener('change', applyFilters);
     document.getElementById('district').addEventListener('change', applyFilters);
@@ -405,7 +389,6 @@ async function init() {
     
     document.getElementById('reset').addEventListener('click', resetFilters);
     
-    // Load data
     await loadDataFromSheet();
     
     console.log('✅ App initialized!');
