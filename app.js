@@ -10,18 +10,39 @@ const CONFIG = {
 // FETCH DATA FROM GOOGLE SHEETS
 // ============================================
 async function loadDataFromSheet() {
-    // Using the sheet ID directly without specifying a sheet name
-    // This fetches all data from the first sheet
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/Sheet1?key=${CONFIG.API_KEY}`;
+    console.log('🔍 Getting sheet metadata...');
     
-    console.log('🔍 Fetching data from URL:', url);
+    // First, get the list of sheets to find the correct sheet name
+    const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}?key=${CONFIG.API_KEY}`;
     
     try {
+        const metaResponse = await fetch(metadataUrl);
+        const metaData = await metaResponse.json();
+        console.log('📋 Sheet metadata:', metaData);
+        
+        // Get the first sheet's title (or find your sheet by name)
+        let sheetTitle = metaData.sheets?.[0]?.properties?.title || 'Sheet1';
+        
+        // Try to find your specific sheet if it exists
+        const yourSheet = metaData.sheets?.find(s => 
+            s.properties.title.includes('Madrasah') || 
+            s.properties.title.includes('Vacancy')
+        );
+        if (yourSheet) {
+            sheetTitle = yourSheet.properties.title;
+        }
+        
+        console.log(`📄 Using sheet name: "${sheetTitle}"`);
+        
+        // Now fetch the data using the correct sheet name
+        const encodedSheetName = encodeURIComponent(sheetTitle);
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodedSheetName}?key=${CONFIG.API_KEY}`;
+        console.log('🔍 Fetching data from:', url);
+        
         const response = await fetch(url);
         console.log('📡 Response status:', response.status);
         
         if (!response.ok) {
-            // Try to get error details
             const errorText = await response.text();
             console.error('❌ Error response:', errorText);
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -36,9 +57,7 @@ async function loadDataFromSheet() {
         
         console.log(`✅ Found ${data.values.length} rows (including header)`);
         console.log('📋 Headers:', data.values[0]);
-        console.log('📋 First data row:', data.values[1]);
         
-        // Convert Google Sheets data to match expected format
         return convertSheetDataToMadrasaFormat(data.values);
     } catch (error) {
         console.error('❌ Failed to load data:', error);
@@ -137,7 +156,6 @@ function convertSheetDataToMadrasaFormat(values) {
     
     console.log(`✅ Converted ${rowData.length} rows successfully`);
     console.log('📊 Sample row:', rowData[0]);
-    console.log('📊 Dict sample (LEVEL):', dicts.LEVEL.slice(0, 5));
     
     return result;
 }
@@ -168,13 +186,11 @@ function showError(message) {
                         <div style="background:#f7fafc;padding:15px;border-radius:8px;margin-top:10px;font-size:12px;overflow:auto;">
                             <p><strong>API Key:</strong> ${CONFIG.API_KEY.slice(0, 10)}...${CONFIG.API_KEY.slice(-5)}</p>
                             <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID}</p>
-                            <p><strong>Sheet Name:</strong> Sheet1 (first sheet)</p>
                             <p style="color:#e53e3e;margin-top:10px;">
                                 ⚠️ নিশ্চিত করুন:<br>
                                 1. Sheet টি "Anyone with link can view" এ সেট করা আছে<br>
                                 2. Google Sheets API টি Enable করা আছে<br>
-                                3. API Key টি Google Sheets API এর জন্য Restrict করা নেই<br>
-                                4. শীটের প্রথম কলামের নাম ঠিক আছে (SL, EIIN, etc.)
+                                3. API Key টি Google Sheets API এর জন্য Restrict করা নেই
                             </p>
                         </div>
                     </details>
@@ -191,8 +207,10 @@ function showError(message) {
     console.log('🚀 App starting...');
     
     // Show loading state
-    document.getElementById('total').textContent = '⏳ লোডিং...';
-    document.getElementById('heroCount').textContent = '⏳';
+    const totalEl = document.getElementById('total');
+    const heroCountEl = document.getElementById('heroCount');
+    if (totalEl) totalEl.textContent = '⏳ লোডিং...';
+    if (heroCountEl) heroCountEl.textContent = '⏳';
     
     // Load data from Google Sheets
     const D = await loadDataFromSheet();
