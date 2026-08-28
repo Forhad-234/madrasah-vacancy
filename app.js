@@ -7,11 +7,20 @@ const CONFIG = {
 };
 
 // ============================================
+// GLOBAL DATA STORE
+// ============================================
+let allData = [];
+let filteredData = [];
+let currentPage = 1;
+let pageSize = 25;
+
+// ============================================
 // FETCH DATA FROM GOOGLE SHEETS
 // ============================================
 async function loadDataFromSheet() {
-    console.log('🔍 Getting sheet metadata...');
+    console.log('🔍 Fetching data from Google Sheets...');
     
+    // First, get the sheet metadata to find the correct sheet name
     const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}?key=${CONFIG.API_KEY}`;
     
     try {
@@ -19,18 +28,11 @@ async function loadDataFromSheet() {
         const metaData = await metaResponse.json();
         console.log('📋 Sheet metadata:', metaData);
         
+        // Get the first sheet title
         let sheetTitle = metaData.sheets?.[0]?.properties?.title || 'Sheet1';
-        
-        const yourSheet = metaData.sheets?.find(s => 
-            s.properties.title.includes('Madrasah') || 
-            s.properties.title.includes('Vacancy')
-        );
-        if (yourSheet) {
-            sheetTitle = yourSheet.properties.title;
-        }
-        
         console.log(`📄 Using sheet name: "${sheetTitle}"`);
         
+        // Fetch the actual data
         const encodedSheetName = encodeURIComponent(sheetTitle);
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodedSheetName}?key=${CONFIG.API_KEY}`;
         console.log('🔍 Fetching data from:', url);
@@ -55,276 +57,359 @@ async function loadDataFromSheet() {
         console.log('📋 Headers:', data.values[0]);
         console.log('📋 First data row:', data.values[1]);
         
-        return convertSheetDataToMadrasaFormat(data.values);
+        // Store the data globally
+        processSheetData(data.values);
+        
     } catch (error) {
         console.error('❌ Failed to load data:', error);
         showError(error.message);
-        return null;
     }
 }
 
 // ============================================
-// CONVERT SHEET DATA TO REQUIRED FORMAT
+// PROCESS SHEET DATA
 // ============================================
-function convertSheetDataToMadrasaFormat(values) {
+function processSheetData(values) {
     const headers = values[0];
     const rows = values.slice(1);
     
-    console.log('📋 Processing headers:', headers);
+    console.log('📋 Processing data...');
+    console.log('📋 Headers found:', headers);
     
-    // ============================================
-    // POSITION-BASED MAPPING (MOST RELIABLE)
-    // ============================================
-    // Assumes columns are in this order:
-    // Col 0: SL
-    // Col 1: EIIN  
-    // Col 2: MADRASHA-NAME
-    // Col 3: LEVEL
-    // Col 4: POST-NAME
-    // Col 5: SUBJECT
-    // Col 6: DIVISION
-    // Col 7: DISTRICT
-    // Col 8: UPAZILLA/THANA
-    
-    const colMap = {
-        'SL': 0,           // Column A
-        'EIIN': 1,         // Column B
-        'MADRASHA-NAME': 2, // Column C
-        'LEVEL': 3,        // Column D
-        'POST-NAME': 4,    // Column E
-        'SUBJECT': 5,      // Column F
-        'DIVISION': 6,     // Column G
-        'DISTRICT': 7,     // Column H
-        'UPAZILLA/THANA': 8 // Column I
-    };
-    
-    // OVERRIDE: Try to find headers by position
-    console.log('📋 Headers found:');
+    // Show all headers with their indices
     headers.forEach((h, i) => {
         console.log(`  Column ${i}: "${h}"`);
     });
     
-    const columnNames = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
-    
-    // Build rows array using position-based mapping
-    const rowData = rows.map((row, idx) => {
-        return columnNames.map((col, colIndex) => {
-            const idx2 = colMap[col];
-            let val = '';
-            if (row && row[idx2] !== undefined && row[idx2] !== '') {
-                val = String(row[idx2]);
-            }
-            // If SL column is empty, use row index + 1
-            if (col === 'SL' && !val) {
-                val = String(idx + 1);
-            }
-            return val;
-        });
-    });
-    
-    // Build dicts
-    const dicts = {};
-    columnNames.forEach((col, colIndex) => {
-        dicts[col] = rowData.map(row => row[colIndex] || '');
-    });
-    
-    console.log('📊 Sample row:', rowData[0]);
-    console.log('📊 Sample MADRASHA-NAME:', dicts['MADRASHA-NAME']?.slice(0, 3));
-    console.log('📊 Sample LEVEL:', dicts['LEVEL']?.slice(0, 3));
-    console.log('📊 Sample POST-NAME:', dicts['POST-NAME']?.slice(0, 3));
-    console.log('📊 Sample DIVISION:', dicts['DIVISION']?.slice(0, 3));
-    
-    const result = {
-        columns: columnNames,
-        dicts: dicts,
-        rows: rowData
+    // Map column indices - TRY BOTH ENGLISH AND BENGALI
+    const getColIndex = (names) => {
+        for (const name of names) {
+            const idx = headers.findIndex(h => {
+                if (!h) return false;
+                return h.trim() === name;
+            });
+            if (idx !== -1) return idx;
+        }
+        // Try case insensitive
+        for (const name of names) {
+            const idx = headers.findIndex(h => {
+                if (!h) return false;
+                return h.toLowerCase().trim() === name.toLowerCase().trim();
+            });
+            if (idx !== -1) return idx;
+        }
+        return -1;
     };
     
-    console.log(`✅ Converted ${rowData.length} rows successfully`);
+    // Map each column with multiple possible names
+    const colMap = {
+        'SL': getColIndex(['SL', 'S/L', 'Serial']),
+        'EIIN': getColIndex(['EIIN', 'EIN', 'Eiin']),
+        'MADRASHA-NAME': getColIndex(['মাদ্রাসার নাম', 'MADRASHA-NAME', 'Madrasha Name', 'NAME']),
+        'LEVEL': getColIndex(['লেভেল', 'LEVEL', 'Level', 'LAVEL']),
+        'POST-NAME': getColIndex(['পদ', 'POST-NAME', 'Post Name', 'POST']),
+        'SUBJECT': getColIndex(['বিষয়', 'SUBJECT', 'Subject']),
+        'DIVISION': getColIndex(['বিভাগ', 'DIVISION', 'Division']),
+        'DISTRICT': getColIndex(['জেলা', 'DISTRICT', 'District']),
+        'UPAZILLA/THANA': getColIndex(['উপজেলা/থানা', 'UPAZILLA/THANA', 'Upazilla', 'Thana', 'UPUZILLATHANA'])
+    };
     
-    return result;
+    console.log('🗺️ Column mapping:', colMap);
+    
+    // Build data array
+    allData = rows.map((row, idx) => {
+        const obj = {};
+        Object.keys(colMap).forEach(key => {
+            const idx2 = colMap[key];
+            let val = '';
+            if (idx2 !== -1 && row && row[idx2] !== undefined && row[idx2] !== '') {
+                val = String(row[idx2]);
+            }
+            // If SL is empty, use index + 1
+            if (key === 'SL' && !val) {
+                val = String(idx + 1);
+            }
+            obj[key] = val;
+        });
+        return obj;
+    });
+    
+    console.log('✅ Processed', allData.length, 'rows');
+    console.log('📊 Sample row:', allData[0]);
+    console.log('📊 Sample MADRASHA-NAME:', allData[0]?.['MADRASHA-NAME']);
+    console.log('📊 Sample LEVEL:', allData[0]?.['LEVEL']);
+    console.log('📊 Sample DIVISION:', allData[0]?.['DIVISION']);
+    
+    // Initialize filtered data
+    filteredData = [...allData];
+    
+    // Populate dropdowns
+    populateDropdowns();
+    
+    // Update UI
+    updateStats();
+    renderTable();
+    renderDashboard();
+}
+
+// ============================================
+// POPULATE DROPDOWNS
+// ============================================
+function populateDropdowns() {
+    const fields = {
+        'division': 'DIVISION',
+        'district': 'DISTRICT',
+        'upazila': 'UPAZILLA/THANA',
+        'level': 'LEVEL',
+        'post': 'POST-NAME',
+        'subject': 'SUBJECT'
+    };
+    
+    Object.keys(fields).forEach(id => {
+        const field = fields[id];
+        const values = [...new Set(allData.map(item => item[field]).filter(v => v && v.trim()))].sort();
+        console.log(`📊 ${field} has ${values.length} unique values`);
+        
+        const select = document.getElementById(id);
+        if (select) {
+            // Clear existing options (keep first one)
+            while (select.options.length > 1) {
+                select.remove(1);
+            }
+            values.forEach(val => {
+                const option = document.createElement('option');
+                option.value = val;
+                option.textContent = val;
+                select.appendChild(option);
+            });
+        }
+    });
+}
+
+// ============================================
+// UPDATE STATS
+// ============================================
+function updateStats() {
+    const total = allData.length;
+    const filtered = filteredData.length;
+    
+    document.getElementById('total').textContent = total.toLocaleString('bn-BD');
+    document.getElementById('heroCount').textContent = total.toLocaleString('bn-BD');
+    document.getElementById('result').textContent = filtered.toLocaleString('bn-BD');
+    
+    // Unique districts and madrasas
+    const districts = new Set(filteredData.map(item => item['DISTRICT']).filter(v => v && v.trim()));
+    const madrasas = new Set(filteredData.map(item => item['MADRASHA-NAME']).filter(v => v && v.trim()));
+    
+    document.getElementById('districts').textContent = districts.size.toLocaleString('bn-BD');
+    document.getElementById('madrasas').textContent = madrasas.size.toLocaleString('bn-BD');
+}
+
+// ============================================
+// RENDER TABLE
+// ============================================
+function renderTable() {
+    const start = (currentPage - 1) * pageSize;
+    const end = Math.min(start + pageSize, filteredData.length);
+    const pageData = filteredData.slice(start, end);
+    
+    // Update pagination info
+    const totalPages = Math.ceil(filteredData.length / pageSize);
+    document.getElementById('range').textContent = filteredData.length ? 
+        `(${(start + 1).toLocaleString('bn-BD')}–${end.toLocaleString('bn-BD')})` : '';
+    document.getElementById('page').textContent = 
+        `পৃষ্ঠা ${currentPage.toLocaleString('bn-BD')} / ${totalPages.toLocaleString('bn-BD')}`;
+    document.getElementById('prev').disabled = currentPage <= 1;
+    document.getElementById('next').disabled = currentPage >= totalPages;
+    
+    // Render table rows
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+    
+    pageData.forEach(row => {
+        const tr = document.createElement('tr');
+        const columns = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
+        columns.forEach(col => {
+            const td = document.createElement('td');
+            td.textContent = row[col] || '—';
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+// ============================================
+// RENDER DASHBOARD
+// ============================================
+function renderDashboard() {
+    renderBars('districtBars', 'DISTRICT', 8);
+    renderBars('divisionBars', 'DIVISION', 8);
+    renderBars('subjectBars', 'SUBJECT', 8);
+}
+
+function renderBars(elementId, field, limit = 8) {
+    const counts = {};
+    filteredData.forEach(item => {
+        const val = item[field];
+        if (val && val.trim()) {
+            counts[val] = (counts[val] || 0) + 1;
+        }
+    });
+    
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, limit);
+    const max = sorted[0]?.[1] || 1;
+    
+    const container = document.getElementById(elementId);
+    container.innerHTML = sorted.map(([name, count]) => `
+        <div class="bar">
+            <div class="barline">
+                <span>${name}</span>
+                <b>${count.toLocaleString('bn-BD')}</b>
+            </div>
+            <div class="track">
+                <div class="fill" style="width: ${(count / max) * 100}%"></div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ============================================
+// APPLY FILTERS
+// ============================================
+function applyFilters() {
+    const searchText = document.getElementById('q').value.trim().toLowerCase();
+    const filters = {
+        'DIVISION': document.getElementById('division').value,
+        'DISTRICT': document.getElementById('district').value,
+        'UPAZILLA/THANA': document.getElementById('upazila').value,
+        'LEVEL': document.getElementById('level').value,
+        'POST-NAME': document.getElementById('post').value,
+        'SUBJECT': document.getElementById('subject').value
+    };
+    
+    filteredData = allData.filter(item => {
+        // Search filter
+        if (searchText) {
+            const searchable = [
+                item['EIIN'],
+                item['MADRASHA-NAME'],
+                item['LEVEL'],
+                item['POST-NAME'],
+                item['SUBJECT'],
+                item['DIVISION'],
+                item['DISTRICT'],
+                item['UPAZILLA/THANA']
+            ].join(' ').toLowerCase();
+            if (!searchable.includes(searchText)) return false;
+        }
+        
+        // Dropdown filters
+        for (const [field, value] of Object.entries(filters)) {
+            if (value && item[field] !== value) return false;
+        }
+        
+        return true;
+    });
+    
+    currentPage = 1;
+    updateStats();
+    renderTable();
+    renderDashboard();
 }
 
 // ============================================
 // SHOW ERROR MESSAGE
 // ============================================
 function showError(message) {
-    console.error('🚨 Showing error:', message);
+    console.error('🚨 Error:', message);
     
-    const heroCount = document.getElementById('heroCount');
-    if (heroCount) heroCount.textContent = '⚠️';
-    
-    const total = document.getElementById('total');
-    if (total) total.textContent = 'Error';
+    document.getElementById('total').textContent = 'Error';
+    document.getElementById('heroCount').textContent = '⚠️';
     
     const tbody = document.getElementById('tbody');
-    if (tbody) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="9" style="text-align:center;padding:40px;font-family:monospace;">
-                    <strong style="color:#c53030;font-size:18px;">❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>
-                    <span style="color:#718096;font-size:14px;display:block;margin-top:10px;">
-                        ${message}
-                    </span>
-                    <details style="margin-top:15px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;">
-                        <summary style="cursor:pointer;color:#4299e1;">🔧 Technical Details</summary>
-                        <div style="background:#f7fafc;padding:15px;border-radius:8px;margin-top:10px;font-size:12px;overflow:auto;">
-                            <p><strong>API Key:</strong> ${CONFIG.API_KEY.slice(0, 10)}...${CONFIG.API_KEY.slice(-5)}</p>
-                            <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID}</p>
-                        </div>
-                    </details>
-                </td>
-            </tr>
-        `;
-    }
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="9" style="text-align:center;padding:40px;font-family:monospace;">
+                <strong style="color:#c53030;font-size:18px;">❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>
+                <span style="color:#718096;font-size:14px;display:block;margin-top:10px;">
+                    ${message}
+                </span>
+                <details style="margin-top:15px;text-align:left;max-width:600px;margin-left:auto;margin-right:auto;">
+                    <summary style="cursor:pointer;color:#4299e1;">🔧 Technical Details</summary>
+                    <div style="background:#f7fafc;padding:15px;border-radius:8px;margin-top:10px;font-size:12px;overflow:auto;">
+                        <p><strong>API Key:</strong> ${CONFIG.API_KEY.slice(0, 10)}...${CONFIG.API_KEY.slice(-5)}</p>
+                        <p><strong>Sheet ID:</strong> ${CONFIG.SPREADSHEET_ID}</p>
+                        <p style="color:#e53e3e;margin-top:10px;">
+                            ⚠️ নিশ্চিত করুন:<br>
+                            1. Sheet টি "Anyone with link can view" এ সেট করা আছে<br>
+                            2. Google Sheets API টি Enable করা আছে<br>
+                            3. আপনার শীটের কলামের নাম ঠিক আছে
+                        </p>
+                    </div>
+                </details>
+            </td>
+        </tr>
+    `;
 }
 
 // ============================================
-// ORIGINAL APP LOGIC
+// RESET ALL FILTERS
 // ============================================
-(async function init() {
+function resetFilters() {
+    ['q', 'division', 'district', 'upazila', 'level', 'post', 'subject'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    applyFilters();
+}
+
+// ============================================
+// INITIALIZE APP
+// ============================================
+async function init() {
     console.log('🚀 App starting...');
     
-    const totalEl = document.getElementById('total');
-    const heroCountEl = document.getElementById('heroCount');
-    if (totalEl) totalEl.textContent = '⏳ লোডিং...';
-    if (heroCountEl) heroCountEl.textContent = '⏳';
+    // Show loading state
+    document.getElementById('total').textContent = '⏳ লোডিং...';
+    document.getElementById('heroCount').textContent = '⏳';
     
-    const D = await loadDataFromSheet();
+    // Set up event listeners
+    document.getElementById('q').addEventListener('input', applyFilters);
+    document.getElementById('division').addEventListener('change', applyFilters);
+    document.getElementById('district').addEventListener('change', applyFilters);
+    document.getElementById('upazila').addEventListener('change', applyFilters);
+    document.getElementById('level').addEventListener('change', applyFilters);
+    document.getElementById('post').addEventListener('change', applyFilters);
+    document.getElementById('subject').addEventListener('change', applyFilters);
     
-    if (!D) {
-        console.error('❌ No data returned, app cannot start');
-        return;
-    }
+    document.getElementById('size').addEventListener('change', function() {
+        pageSize = parseInt(this.value);
+        currentPage = 1;
+        renderTable();
+    });
     
-    console.log('✅ Data loaded successfully');
-    window.MADRASA_DATA = D;
-    
-    const C = D.columns;
-    const R = D.rows;
-    const dict = D.dicts;
-    const ix = Object.fromEntries(C.map((c, i) => [c, i]));
-    
-    const v = (c, n) => {
-        const val = dict[c]?.[n];
-        return val || '';
-    };
-    const $ = x => document.getElementById(x);
-    
-    let state = { rows: R, page: 1, size: 25 };
-    
-    $("total").textContent = R.length.toLocaleString("bn-BD");
-    $("heroCount").textContent = R.length.toLocaleString("bn-BD");
-    
-    function unique(c) {
-        const values = R.map(r => v(c, r[ix[c]]));
-        const uniqueValues = [...new Set(values)].filter(x => x).sort((a, b) => a.localeCompare(b));
-        console.log(`📊 Unique values for ${c}:`, uniqueValues.slice(0, 5));
-        return uniqueValues;
-    }
-    
-    function fill(id, c) {
-        unique(c).forEach(x => {
-            let o = document.createElement("option");
-            o.value = x;
-            o.textContent = x;
-            $(id).append(o);
-        });
-    }
-    
-    fill("division", "DIVISION");
-    fill("district", "DISTRICT");
-    fill("upazila", "UPAZILLA/THANA");
-    fill("level", "LEVEL");
-    fill("post", "POST-NAME");
-    fill("subject", "SUBJECT");
-    
-    function apply() {
-        let q = $("q").value.trim().toLowerCase();
-        let fs = {
-            "DIVISION": $("division").value,
-            "DISTRICT": $("district").value,
-            "UPAZILLA/THANA": $("upazila").value,
-            "LEVEL": $("level").value,
-            "POST-NAME": $("post").value,
-            "SUBJECT": $("subject").value
-        };
-        state.rows = R.filter(r => {
-            if (q) {
-                let h = [r[ix.EIIN], ...Object.keys(fs).map(c => v(c, r[ix[c]]))].join(" ").toLowerCase();
-                if (!h.includes(q)) return false;
-            }
-            return Object.entries(fs).every(([c, x]) => !x || v(c, r[ix[c]]) === x);
-        });
-        state.page = 1;
-        render();
-    }
-    
-    function render() {
-        let a = state.rows, s = state.size;
-        let p = Math.max(1, Math.ceil(a.length / s));
-        state.page = Math.min(state.page, p);
-        let st = (state.page - 1) * s, en = Math.min(st + s, a.length);
-        $("result").textContent = a.length.toLocaleString("bn-BD");
-        $("districts").textContent = new Set(a.map(r => v("DISTRICT", r[ix.DISTRICT]))).size.toLocaleString("bn-BD");
-        $("madrasas").textContent = new Set(a.map(r => v("MADRASHA-NAME", r[ix["MADRASHA-NAME"]]))).size.toLocaleString("bn-BD");
-        $("range").textContent = a.length ? `(${(st + 1).toLocaleString("bn-BD")}–${en.toLocaleString("bn-BD")})` : "";
-        $("page").textContent = `পৃষ্ঠা ${state.page.toLocaleString("bn-BD")} / ${p.toLocaleString("bn-BD")}`;
-        $("prev").disabled = state.page <= 1;
-        $("next").disabled = state.page >= p;
-        let tb = $("tbody");
-        tb.innerHTML = "";
-        for (let i = st; i < en; i++) {
-            let r = a[i], tr = document.createElement("tr");
-            ["SL", "EIIN", "MADRASHA-NAME", "LEVEL", "POST-NAME", "SUBJECT", "DIVISION", "DISTRICT", "UPAZILLA/THANA"].forEach((c, j) => {
-                let td = document.createElement("td");
-                if (j < 2) {
-                    td.textContent = r[ix[c]] || '';
-                } else {
-                    const val = v(c, r[ix[c]]);
-                    td.textContent = val || '';
-                }
-                tr.append(td);
-            });
-            tb.append(tr);
+    document.getElementById('prev').addEventListener('click', function() {
+        if (currentPage > 1) {
+            currentPage--;
+            renderTable();
         }
-    }
+    });
     
-    function bars(id, c, n = 8) {
-        let counts = {};
-        state.rows.forEach(r => {
-            let x = v(c, r[ix[c]]);
-            if (x) {
-                counts[x] = (counts[x] || 0) + 1;
-            }
-        });
-        let top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, n);
-        let max = top[0]?.[1] || 1;
-        $(id).innerHTML = top.map(([k, n]) =>
-            `<div class="bar"><div class="barline"><span>${k}</span><b>${n.toLocaleString("bn-BD")}</b></div><div class="track"><div class="fill" style="width:${n / max * 100}%"></div></div></div>`
-        ).join("");
-    }
+    document.getElementById('next').addEventListener('click', function() {
+        const totalPages = Math.ceil(filteredData.length / pageSize);
+        if (currentPage < totalPages) {
+            currentPage++;
+            renderTable();
+        }
+    });
     
-    function dashboard() {
-        bars("districtBars", "DISTRICT", 8);
-        bars("divisionBars", "DIVISION", 8);
-        bars("subjectBars", "SUBJECT", 8);
-    }
+    document.getElementById('reset').addEventListener('click', resetFilters);
     
-    ["q", "division", "district", "upazila", "level", "post", "subject"].forEach(id =>
-        $(id).addEventListener(id === "q" ? "input" : "change", () => { apply(); dashboard(); })
-    );
+    // Load data
+    await loadDataFromSheet();
     
-    $("size").onchange = () => { state.size = +$("size").value; state.page = 1; render(); };
-    $("prev").onclick = () => { state.page--; render(); };
-    $("next").onclick = () => { state.page++; render(); };
-    $("reset").onclick = () => {
-        ["q", "division", "district", "upazila", "level", "post", "subject"].forEach(id => $(id).value = "");
-        apply();
-        dashboard();
-    };
-    
-    dashboard();
-    render();
-    console.log('✅ App initialized successfully!');
-})();
+    console.log('✅ App initialized!');
+}
+
+// Start the app
+init();
