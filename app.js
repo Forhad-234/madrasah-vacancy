@@ -1,535 +1,315 @@
 // ============================================
 // GOOGLE SHEETS CONFIGURATION
 // ============================================
-var CONFIG = {
+const CONFIG = {
     API_KEY: 'AIzaSyCQFgrkG6snidiKMwbYxveVv0ny7wNcn-E',
     SPREADSHEET_ID: '1O5swZSBsdhwv1GnvVGJB_chDZ8a4uAGQtO8UwKSZ1gc'
 };
 
 // ============================================
-// TAB CONFIGURATION
-// ============================================
-var TABS = {
-    'vacancy': {
-        sheetName: 'Madrasah Vacancy',
-        label: 'শিক্ষক শূন্যপদ',
-        title: 'শিক্ষক শূন্যপদ',
-        columnMapping: {
-            'SL': 'SL',
-            'EIIN': 'EIN',
-            'MADRASHA-NAME': 'MADRASA-MAME',
-            'LEVEL': 'LEVEL',
-            'POST-NAME': 'POST-NAME',
-            'SUBJECT': 'SUBJECT',
-            'DIVISION': 'DIVISION',
-            'DISTRICT': 'DISTRICT',
-            'UPAZILLA/THANA': 'UPAZILLA/TAHMA'
-        },
-        displayColumns: ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'],
-        dashboardBars: {
-            'districtBars': 'DISTRICT',
-            'divisionBars': 'DIVISION',
-            'postBars': 'POST-NAME'
-        },
-        filterFields: ['DIVISION', 'DISTRICT', 'UPAZILLA/THANA', 'LEVEL', 'POST-NAME', 'SUBJECT']
-    },
-    'admin': {
-        sheetName: 'অধ্যক্ষ উপাধ্যক্ষ সুপার সহসুপার',
-        label: 'অধ্যক্ষ উপাধ্যক্ষ সুপার সহসুপার',
-        title: 'অধ্যক্ষ, উপাধ্যক্ষ, সুপার, সহসুপার পদ',
-        columnMapping: {
-            'SL': 'INSTITUTE_ID',
-            'EIIN': 'EIN',
-            'MADRASHA-NAME': 'MADRASHA-NAME',
-            'LEVEL': 'LEVEL',
-            'POST-NAME': 'POST-NAME',
-            'DIVISION': 'DIVISION',
-            'DISTRICT': 'ZILA',
-            'UPAZILLA/THANA': 'UPAZILA'
-        },
-        displayColumns: ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'],
-        dashboardBars: {
-            'districtBars': 'DISTRICT',
-            'divisionBars': 'DIVISION',
-            'postBars': 'POST-NAME'
-        },
-        filterFields: ['DIVISION', 'DISTRICT', 'UPAZILLA/THANA', 'LEVEL', 'POST-NAME']
-    }
-};
-
-// ============================================
 // GLOBAL DATA STORE
 // ============================================
-var dataStore = {
-    'vacancy': { allData: [], filteredData: [] },
-    'admin': { allData: [], filteredData: [] }
-};
-var currentTab = 'vacancy';
-var currentPage = 1;
-var pageSize = 25;
-var isLoading = false;
+let allData = [];
+let filteredData = [];
+let currentPage = 1;
+let pageSize = 25;
 
 // ============================================
-// UTILITY FUNCTIONS
+// FETCH DATA FROM GOOGLE SHEETS
 // ============================================
-function getElement(id) {
-    var el = document.getElementById(id);
-    if (!el) {
-        console.warn('Element not found: #' + id);
-    }
-    return el;
-}
-
-// ============================================
-// COLUMN NAME MAPPING
-// ============================================
-function getColumnMapping(headers, tabId) {
-    var tabConfig = TABS[tabId];
-    var mapping = tabConfig.columnMapping;
-    var colMap = {};
-
-    console.log('📋 Mapping columns for ' + tabId + '...');
-
-    for (var i = 0; i < headers.length; i++) {
-        var h = headers[i];
-        if (!h) continue;
-        var clean = h.trim();
-        var lower = clean.toLowerCase();
-
-        for (var standardCol in mapping) {
-            if (mapping.hasOwnProperty(standardCol)) {
-                var expected = mapping[standardCol];
-                if (clean === expected || lower === expected.toLowerCase()) {
-                    colMap[standardCol] = i;
-                    console.log('  ✓ ' + standardCol + ' → Column ' + i + ' ("' + clean + '")');
-                }
-            }
-        }
-    }
-
-    // Fuzzy match for DISTRICT
-    if (colMap['DISTRICT'] === undefined) {
-        for (var i = 0; i < headers.length; i++) {
-            var h = headers[i];
-            if (!h) continue;
-            var clean = h.trim().toLowerCase();
-            if (clean === 'জেলা' || clean === 'district' || clean === 'zila' || clean === 'jela') {
-                colMap['DISTRICT'] = i;
-                console.log('  ✓ DISTRICT → Column ' + i + ' ("' + h + '") [fuzzy]');
-            }
-        }
-    }
-
-    // Fuzzy match for UPAZILLA/THANA
-    if (colMap['UPAZILLA/THANA'] === undefined) {
-        for (var i = 0; i < headers.length; i++) {
-            var h = headers[i];
-            if (!h) continue;
-            var clean = h.trim().toLowerCase();
-            if (clean === 'উপজেলা' || clean === 'upazila' || clean === 'upazilla' ||
-                clean === 'উপজেলা/থানা' || clean === 'upazilla/thana' || clean === 'upuzillathana') {
-                colMap['UPAZILLA/THANA'] = i;
-                console.log('  ✓ UPAZILLA/THANA → Column ' + i + ' ("' + h + '") [fuzzy]');
-            }
-        }
-    }
-
-    console.log('🗺️ Final Column Mapping:', colMap);
-    return colMap;
-}
-
-// ============================================
-// TAB SWITCHING
-// ============================================
-function switchTab(tabId) {
-    if (isLoading) return;
-    if (tabId === currentTab) return;
-
-    console.log('🔄 Switching to tab: ' + tabId);
-    currentTab = tabId;
-    currentPage = 1;
-
-    var buttons = document.querySelectorAll('.tab-btn');
-    for (var i = 0; i < buttons.length; i++) {
-        var btn = buttons[i];
-        if (btn.dataset.tab === tabId) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    }
-
-    var heroTitle = getElement('heroTitle');
-    if (heroTitle) heroTitle.textContent = TABS[tabId].title;
-
-    var subjectFilter = getElement('subjectFilter');
-    if (subjectFilter) {
-        subjectFilter.style.display = tabId === 'admin' ? 'none' : 'block';
-    }
-
-    var store = dataStore[tabId];
-    if (store.allData.length === 0) {
-        loadDataForTab(tabId);
-    } else {
-        useDataForTab(tabId);
-    }
-}
-
-function useDataForTab(tabId) {
-    var store = dataStore[tabId];
-    window.allData = store.allData;
-    window.filteredData = store.filteredData;
-    populateDropdowns();
-    updateStats();
-    renderTable();
-    renderDashboard();
-}
-
-async function loadDataForTab(tabId) {
-    var tabConfig = TABS[tabId];
-    isLoading = true;
-
-    var btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
-    if (btn) {
-        btn.classList.add('loading');
-        btn.textContent = '⏳ লোডিং...';
-    }
-
+async function loadDataFromSheet() {
+    console.log('🔍 Fetching data from Google Sheets...');
+    
+    const metadataUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}?key=${CONFIG.API_KEY}`;
+    
     try {
-        console.log('🔍 Fetching data from sheet: "' + tabConfig.sheetName + '"...');
-
-        var encodedSheetName = encodeURIComponent(tabConfig.sheetName);
-        var url = 'https://sheets.googleapis.com/v4/spreadsheets/' + CONFIG.SPREADSHEET_ID + '/values/' + encodedSheetName + '?key=' + CONFIG.API_KEY;
-
-        var response = await fetch(url);
-
+        const metaResponse = await fetch(metadataUrl);
+        const metaData = await metaResponse.json();
+        console.log('📋 Sheet metadata:', metaData);
+        
+        let sheetTitle = metaData.sheets?.[0]?.properties?.title || 'Sheet1';
+        console.log(`📄 Using sheet name: "${sheetTitle}"`);
+        
+        const encodedSheetName = encodeURIComponent(sheetTitle);
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodedSheetName}?key=${CONFIG.API_KEY}`;
+        console.log('🔍 Fetching data from:', url);
+        
+        const response = await fetch(url);
+        console.log('📡 Response status:', response.status);
+        
         if (!response.ok) {
-            var errorText = await response.text();
+            const errorText = await response.text();
             console.error('❌ Error response:', errorText);
-            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-
-        var data = await response.json();
-
+        
+        const data = await response.json();
+        console.log('📊 Data received:', data);
+        
         if (!data.values || data.values.length === 0) {
-            throw new Error('No data found in sheet: ' + tabConfig.sheetName);
+            throw new Error('No data found in sheet');
         }
-
-        console.log('✅ Found ' + data.values.length + ' rows (including header)');
-
-        processSheetData(data.values, tabId);
-
-        if (btn) {
-            btn.textContent = tabConfig.label;
-            btn.classList.remove('loading');
-            var count = dataStore[tabId].allData.length;
-            btn.innerHTML = tabConfig.label + ' <span class="badge">' + count + '</span>';
-        }
-
-        useDataForTab(tabId);
-
+        
+        console.log(`✅ Found ${data.values.length} rows (including header)`);
+        console.log('📋 Headers:', data.values[0]);
+        
+        // Log first 3 rows of data
+        console.log('📋 First data row:', data.values[1]);
+        console.log('📋 Second data row:', data.values[2]);
+        console.log('📋 Third data row:', data.values[3]);
+        
+        // Process the data
+        processSheetData(data.values);
+        
     } catch (error) {
-        console.error('❌ Failed to load ' + tabConfig.sheetName + ':', error);
-        if (btn) {
-            btn.textContent = '⚠️ ত্রুটি';
-            btn.classList.remove('loading');
-        }
-        showError('"' + tabConfig.sheetName + '" লোড করতে ব্যর্থ: ' + error.message);
+        console.error('❌ Failed to load data:', error);
+        showError(error.message);
     }
-
-    isLoading = false;
 }
 
 // ============================================
 // PROCESS SHEET DATA
 // ============================================
-function processSheetData(values, tabId) {
-    var headers = values[0];
-    var rows = values.slice(1);
-
-    console.log('📋 Processing ' + tabId + ' data...');
-    console.log('📋 Headers found:', headers);
-
-    var colMap = getColumnMapping(headers, tabId);
-
-    var allData = [];
-    for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        var obj = {};
-
-        for (var key in colMap) {
-            if (colMap.hasOwnProperty(key)) {
-                var idx = colMap[key];
-                var val = '';
-                if (idx !== undefined && row && row[idx] !== undefined && row[idx] !== '') {
-                    val = String(row[idx]);
-                }
-                obj[key] = val;
+function processSheetData(values) {
+    const headers = values[0];
+    const rows = values.slice(1);
+    
+    console.log('📋 Processing headers...');
+    
+    // Log each header with its index
+    console.log('📋 HEADER MAPPING:');
+    headers.forEach((h, i) => {
+        console.log(`  Column ${i}: "${h}"`);
+    });
+    
+    // ============================================
+    // CRITICAL: Define column mapping
+    // ============================================
+    const colMap = {};
+    
+    // Try to find each column by name (case insensitive)
+    headers.forEach((h, i) => {
+        if (!h) return;
+        const clean = h.trim();
+        const lower = clean.toLowerCase();
+        
+        if (lower === 'sl' || lower === 's/l') colMap['SL'] = i;
+        else if (lower === 'eiin' || lower === 'ein') colMap['EIIN'] = i;
+        else if (lower === 'মাদ্রাসার নাম' || lower === 'madrasha-name' || lower === 'madrasha name') colMap['MADRASHA-NAME'] = i;
+        else if (lower === 'লেভেল' || lower === 'level') colMap['LEVEL'] = i;
+        else if (lower === 'পদ' || lower === 'post-name' || lower === 'post name') colMap['POST-NAME'] = i;
+        else if (lower === 'বিষয়' || lower === 'subject') colMap['SUBJECT'] = i;
+        else if (lower === 'বিভাগ' || lower === 'division') colMap['DIVISION'] = i;
+        else if (lower === 'জেলা' || lower === 'district') colMap['DISTRICT'] = i;
+        else if (lower === 'উপজেলা/থানা' || lower === 'upazilla/thana' || lower === 'upuzillathana') colMap['UPAZILLA/THANA'] = i;
+    });
+    
+    console.log('🗺️ Final Column Mapping:', colMap);
+    
+    // Build data array
+    allData = rows.map((row, idx) => {
+        const obj = {};
+        Object.keys(colMap).forEach(key => {
+            const idx2 = colMap[key];
+            let val = '';
+            if (idx2 !== undefined && row && row[idx2] !== undefined && row[idx2] !== '') {
+                val = String(row[idx2]);
             }
-        }
-
-        if (!obj['SL']) {
-            obj['SL'] = String(i + 1);
-        }
-
-        allData.push(obj);
-    }
-
-    dataStore[tabId] = {
-        allData: allData,
-        filteredData: allData.slice(0)
-    };
-
-    console.log('✅ ' + tabId + ': Processed ' + allData.length + ' rows');
-    if (allData.length > 0) {
-        console.log('📊 Sample row:', allData[0]);
-    }
+            // If SL is empty, use index + 1
+            if (key === 'SL' && !val) {
+                val = String(idx + 1);
+            }
+            obj[key] = val;
+        });
+        return obj;
+    });
+    
+    console.log('✅ Processed', allData.length, 'rows');
+    console.log('📊 Sample row (first record):', allData[0]);
+    console.log('📊 Sample MADRASHA-NAME:', allData[0]?.['MADRASHA-NAME']);
+    console.log('📊 Sample LEVEL:', allData[0]?.['LEVEL']);
+    console.log('📊 Sample DIVISION:', allData[0]?.['DIVISION']);
+    console.log('📊 Sample DISTRICT:', allData[0]?.['DISTRICT']);
+    console.log('📊 Sample POST-NAME:', allData[0]?.['POST-NAME']);
+    console.log('📊 Sample SUBJECT:', allData[0]?.['SUBJECT']);
+    
+    // Check if data is empty
+    const hasData = allData.some(item => item['MADRASHA-NAME'] || item['LEVEL']);
+    console.log('📊 Has meaningful data?', hasData);
+    
+    // Initialize filtered data
+    filteredData = [...allData];
+    
+    // Populate dropdowns
+    populateDropdowns();
+    
+    // Update UI
+    updateStats();
+    renderTable();
+    renderDashboard();
 }
 
 // ============================================
 // POPULATE DROPDOWNS
 // ============================================
 function populateDropdowns() {
-    var store = dataStore[currentTab];
-    if (!store || store.allData.length === 0) return;
-
-    var allData = store.allData;
-    var tabConfig = TABS[currentTab];
-    var filterFields = tabConfig.filterFields;
-
-    var fieldMap = {
-        'DIVISION': 'division',
-        'DISTRICT': 'district',
-        'UPAZILLA/THANA': 'upazila',
-        'LEVEL': 'level',
-        'POST-NAME': 'post',
-        'SUBJECT': 'subject'
+    const fields = {
+        'division': 'DIVISION',
+        'district': 'DISTRICT',
+        'upazila': 'UPAZILLA/THANA',
+        'level': 'LEVEL',
+        'post': 'POST-NAME',
+        'subject': 'SUBJECT'
     };
-
-    for (var f = 0; f < filterFields.length; f++) {
-        var field = filterFields[f];
-        var id = fieldMap[field];
-        if (!id) continue;
-
-        var values = [];
-        var seen = {};
-        for (var i = 0; i < allData.length; i++) {
-            var val = allData[i][field];
-            if (val && val.trim() && !seen[val]) {
-                seen[val] = true;
-                values.push(val);
-            }
+    
+    Object.keys(fields).forEach(id => {
+        const field = fields[id];
+        const values = [...new Set(allData.map(item => item[field]).filter(v => v && v.trim()))].sort();
+        
+        console.log(`📊 ${field} has ${values.length} unique values`);
+        if (values.length > 0) {
+            console.log(`📊 First 5 ${field} values:`, values.slice(0, 5));
+        } else {
+            console.log(`⚠️ WARNING: No values found for ${field}!`);
+            console.log(`   Check if column "${field}" exists in your sheet`);
         }
-        values.sort();
-
-        var select = getElement(id);
+        
+        const select = document.getElementById(id);
         if (select) {
+            // Clear existing options (keep first one)
             while (select.options.length > 1) {
                 select.remove(1);
             }
-            for (var v = 0; v < values.length; v++) {
-                var option = document.createElement('option');
-                option.value = values[v];
-                option.textContent = values[v];
+            values.forEach(val => {
+                const option = document.createElement('option');
+                option.value = val;
+                option.textContent = val;
                 select.appendChild(option);
-            }
+            });
         }
-    }
+    });
 }
 
 // ============================================
 // UPDATE STATS
 // ============================================
 function updateStats() {
-    var store = dataStore[currentTab];
-    if (!store) return;
-
-    var allData = store.allData;
-    var filteredData = store.filteredData;
-
-    var total = allData.length;
-    var filtered = filteredData.length;
-
-    var totalEl = getElement('total');
-    var heroCountEl = getElement('heroCount');
-    var resultEl = getElement('result');
-    if (totalEl) totalEl.textContent = total.toLocaleString('bn-BD');
-    if (heroCountEl) heroCountEl.textContent = total.toLocaleString('bn-BD');
-    if (resultEl) resultEl.textContent = filtered.toLocaleString('bn-BD');
-
-    var districts = new Set();
-    var madrasas = new Set();
-    for (var i = 0; i < filteredData.length; i++) {
-        var d = filteredData[i]['DISTRICT'];
-        var m = filteredData[i]['MADRASHA-NAME'];
-        if (d && d.trim()) districts.add(d);
-        if (m && m.trim()) madrasas.add(m);
-    }
-
-    var districtsEl = getElement('districts');
-    var madrasasEl = getElement('madrasas');
-    var heroDistrictEl = getElement('heroDistrict');
-    var heroMadrasaEl = getElement('heroMadrasa');
-    if (districtsEl) districtsEl.textContent = districts.size.toLocaleString('bn-BD');
-    if (madrasasEl) madrasasEl.textContent = madrasas.size.toLocaleString('bn-BD');
-    if (heroDistrictEl) heroDistrictEl.textContent = districts.size.toLocaleString('bn-BD');
-    if (heroMadrasaEl) heroMadrasaEl.textContent = madrasas.size.toLocaleString('bn-BD');
+    const total = allData.length;
+    const filtered = filteredData.length;
+    
+    document.getElementById('total').textContent = total.toLocaleString('bn-BD');
+    document.getElementById('heroCount').textContent = total.toLocaleString('bn-BD');
+    document.getElementById('result').textContent = filtered.toLocaleString('bn-BD');
+    
+    const districts = new Set(filteredData.map(item => item['DISTRICT']).filter(v => v && v.trim()));
+    const madrasas = new Set(filteredData.map(item => item['MADRASHA-NAME']).filter(v => v && v.trim()));
+    
+    document.getElementById('districts').textContent = districts.size.toLocaleString('bn-BD');
+    document.getElementById('madrasas').textContent = madrasas.size.toLocaleString('bn-BD');
 }
 
 // ============================================
 // RENDER TABLE
 // ============================================
 function renderTable() {
-    var store = dataStore[currentTab];
-    if (!store) return;
-
-    var filteredData = store.filteredData;
-    var start = (currentPage - 1) * pageSize;
-    var end = Math.min(start + pageSize, filteredData.length);
-    var pageData = filteredData.slice(start, end);
-
-    var totalPages = Math.ceil(filteredData.length / pageSize) || 1;
-
-    var rangeEl = getElement('range');
-    var pageEl = getElement('page');
-    var prevEl = getElement('prev');
-    var nextEl = getElement('next');
-
-    if (rangeEl) {
-        rangeEl.textContent = filteredData.length ?
-            '(' + (start + 1).toLocaleString('bn-BD') + '–' + end.toLocaleString('bn-BD') + ')' : '';
-    }
-    if (pageEl) {
-        pageEl.textContent = 'পৃষ্ঠা ' + currentPage.toLocaleString('bn-BD') + ' / ' + totalPages.toLocaleString('bn-BD');
-    }
-    if (prevEl) prevEl.disabled = currentPage <= 1;
-    if (nextEl) nextEl.disabled = currentPage >= totalPages;
-
-    var tbody = getElement('tbody');
-    if (!tbody) return;
+    const start = (currentPage - 1) * pageSize;
+    const end = Math.min(start + pageSize, filteredData.length);
+    const pageData = filteredData.slice(start, end);
+    
+    const totalPages = Math.ceil(filteredData.length / pageSize);
+    document.getElementById('range').textContent = filteredData.length ? 
+        `(${(start + 1).toLocaleString('bn-BD')}–${end.toLocaleString('bn-BD')})` : '';
+    document.getElementById('page').textContent = 
+        `পৃষ্ঠা ${currentPage.toLocaleString('bn-BD')} / ${totalPages.toLocaleString('bn-BD')}`;
+    document.getElementById('prev').disabled = currentPage <= 1;
+    document.getElementById('next').disabled = currentPage >= totalPages;
+    
+    const tbody = document.getElementById('tbody');
     tbody.innerHTML = '';
-
-    var columns = TABS[currentTab].displayColumns;
-    for (var i = 0; i < pageData.length; i++) {
-        var row = pageData[i];
-        var tr = document.createElement('tr');
-        for (var c = 0; c < columns.length; c++) {
-            var col = columns[c];
-            var td = document.createElement('td');
+    
+    pageData.forEach(row => {
+        const tr = document.createElement('tr');
+        const columns = ['SL', 'EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'SUBJECT', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
+        columns.forEach(col => {
+            const td = document.createElement('td');
             td.textContent = row[col] || '—';
             tr.appendChild(td);
-        }
+        });
         tbody.appendChild(tr);
-    }
+    });
 }
 
 // ============================================
 // RENDER DASHBOARD
 // ============================================
 function renderDashboard() {
-    var store = dataStore[currentTab];
-    if (!store) return;
-
-    var filteredData = store.filteredData;
-    var barConfigs = TABS[currentTab].dashboardBars;
-
-    for (var elementId in barConfigs) {
-        if (barConfigs.hasOwnProperty(elementId)) {
-            var field = barConfigs[elementId];
-            renderBars(elementId, field, 8, filteredData);
-        }
-    }
+    renderBars('districtBars', 'DISTRICT', 8);
+    renderBars('divisionBars', 'DIVISION', 8);
+    renderBars('subjectBars', 'SUBJECT', 8);
 }
 
-function renderBars(elementId, field, limit, data) {
-    limit = limit || 8;
-    var counts = {};
-    for (var i = 0; i < data.length; i++) {
-        var val = data[i][field];
+function renderBars(elementId, field, limit = 8) {
+    const counts = {};
+    filteredData.forEach(item => {
+        const val = item[field];
         if (val && val.trim()) {
             counts[val] = (counts[val] || 0) + 1;
         }
-    }
-
-    var sorted = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; }).slice(0, limit);
-    var max = sorted.length > 0 ? sorted[0][1] : 1;
-
-    var container = getElement(elementId);
-    if (!container) return;
-
-    var html = '';
-    for (var i = 0; i < sorted.length; i++) {
-        var name = sorted[i][0];
-        var count = sorted[i][1];
-        var width = (count / max) * 100;
-        html += '<div class="bar">' +
-            '<div class="barline">' +
-            '<span>' + name + '</span>' +
-            '<b>' + count.toLocaleString('bn-BD') + '</b>' +
-            '</div>' +
-            '<div class="track">' +
-            '<div class="fill" style="width: ' + width + '%;"></div>' +
-            '</div>' +
-            '</div>';
-    }
-    container.innerHTML = html;
+    });
+    
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, limit);
+    const max = sorted[0]?.[1] || 1;
+    
+    const container = document.getElementById(elementId);
+    container.innerHTML = sorted.map(([name, count]) => `
+        <div class="bar">
+            <div class="barline">
+                <span>${name}</span>
+                <b>${count.toLocaleString('bn-BD')}</b>
+            </div>
+            <div class="track">
+                <div class="fill" style="width: ${(count / max) * 100}%"></div>
+            </div>
+        </div>
+    `).join('');
 }
 
 // ============================================
 // APPLY FILTERS
 // ============================================
 function applyFilters() {
-    var store = dataStore[currentTab];
-    if (!store) return;
-
-    var allData = store.allData;
-    var searchInput = getElement('q');
-    var searchText = searchInput ? searchInput.value.trim().toLowerCase() : '';
-
-    var filters = {};
-    var tabConfig = TABS[currentTab];
-    var fieldMap = {
-        'DIVISION': 'division',
-        'DISTRICT': 'district',
-        'UPAZILLA/THANA': 'upazila',
-        'LEVEL': 'level',
-        'POST-NAME': 'post',
-        'SUBJECT': 'subject'
+    const searchText = document.getElementById('q').value.trim().toLowerCase();
+    const filters = {
+        'DIVISION': document.getElementById('division').value,
+        'DISTRICT': document.getElementById('district').value,
+        'UPAZILLA/THANA': document.getElementById('upazila').value,
+        'LEVEL': document.getElementById('level').value,
+        'POST-NAME': document.getElementById('post').value,
+        'SUBJECT': document.getElementById('subject').value
     };
-
-    for (var f = 0; f < tabConfig.filterFields.length; f++) {
-        var field = tabConfig.filterFields[f];
-        var id = fieldMap[field];
-        if (id) {
-            var el = getElement(id);
-            filters[field] = el ? el.value : '';
-        }
-    }
-
-    store.filteredData = allData.filter(function(item) {
+    
+    filteredData = allData.filter(item => {
         if (searchText) {
-            var searchableFields = ['EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
-            if (item['SUBJECT']) searchableFields.push('SUBJECT');
-
-            var searchable = '';
-            for (var s = 0; s < searchableFields.length; s++) {
-                searchable += (item[searchableFields[s]] || '') + ' ';
-            }
-            searchable = searchable.toLowerCase();
-
-            if (searchable.indexOf(searchText) === -1) return false;
+            const searchable = [
+                item['EIIN'],
+                item['MADRASHA-NAME'],
+                item['LEVEL'],
+                item['POST-NAME'],
+                item['SUBJECT'],
+                item['DIVISION'],
+                item['DISTRICT'],
+                item['UPAZILLA/THANA']
+            ].join(' ').toLowerCase();
+            if (!searchable.includes(searchText)) return false;
         }
-
-        for (var field in filters) {
-            if (filters.hasOwnProperty(field)) {
-                var value = filters[field];
-                if (value && item[field] !== value) return false;
-            }
+        
+        for (const [field, value] of Object.entries(filters)) {
+            if (value && item[field] !== value) return false;
         }
-
+        
         return true;
     });
-
+    
     currentPage = 1;
     updateStats();
     renderTable();
@@ -541,64 +321,32 @@ function applyFilters() {
 // ============================================
 function showError(message) {
     console.error('🚨 Error:', message);
-
-    var totalEl = getElement('total');
-    var heroCountEl = getElement('heroCount');
-    if (totalEl) totalEl.textContent = 'Error';
-    if (heroCountEl) heroCountEl.textContent = '⚠️';
-
-    var tbody = getElement('tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;font-family:monospace;">' +
-        '<strong style="color:#c53030;font-size:18px;">❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>' +
-        '<span style="color:#718096;font-size:14px;display:block;margin-top:10px;">' + message + '</span>' +
-        '</td></tr>';
+    
+    document.getElementById('total').textContent = 'Error';
+    document.getElementById('heroCount').textContent = '⚠️';
+    
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="9" style="text-align:center;padding:40px;font-family:monospace;">
+                <strong style="color:#c53030;font-size:18px;">❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>
+                <span style="color:#718096;font-size:14px;display:block;margin-top:10px;">
+                    ${message}
+                </span>
+            </td>
+        </tr>
+    `;
 }
 
 // ============================================
 // RESET ALL FILTERS
 // ============================================
 function resetFilters() {
-    var tabConfig = TABS[currentTab];
-    var fieldMap = {
-        'DIVISION': 'division',
-        'DISTRICT': 'district',
-        'UPAZILLA/THANA': 'upazila',
-        'LEVEL': 'level',
-        'POST-NAME': 'post',
-        'SUBJECT': 'subject'
-    };
-
-    var qEl = getElement('q');
-    if (qEl) qEl.value = '';
-
-    for (var f = 0; f < tabConfig.filterFields.length; f++) {
-        var field = tabConfig.filterFields[f];
-        var id = fieldMap[field];
-        if (id) {
-            var el = getElement(id);
-            if (el) el.value = '';
-        }
-    }
-
-    applyFilters();
-}
-
-// ============================================
-// LOAD ALL DATA
-// ============================================
-async function loadAllData() {
-    console.log('🚀 Loading all tabs...');
-
-    await loadDataForTab('vacancy');
-
-    loadDataForTab('admin').then(function() {
-        console.log('✅ All tabs loaded!');
-        var adminBtn = document.querySelector('.tab-btn[data-tab="admin"]');
-        if (adminBtn && dataStore.admin.allData.length > 0) {
-            adminBtn.innerHTML = 'অধ্যক্ষ উপাধ্যক্ষ সুপার সহসুপার <span class="badge">' + dataStore.admin.allData.length + '</span>';
-        }
+    ['q', 'division', 'district', 'upazila', 'level', 'post', 'subject'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
     });
+    applyFilters();
 }
 
 // ============================================
@@ -606,75 +354,43 @@ async function loadAllData() {
 // ============================================
 async function init() {
     console.log('🚀 App starting...');
-
-    var totalEl = getElement('total');
-    var heroCountEl = getElement('heroCount');
-    if (totalEl) totalEl.textContent = '⏳ লোডিং...';
-    if (heroCountEl) heroCountEl.textContent = '⏳';
-
-    // Setup tab switching
-    var tabButtons = document.querySelectorAll('.tab-btn');
-    for (var i = 0; i < tabButtons.length; i++) {
-        var btn = tabButtons[i];
-        btn.addEventListener('click', function() {
-            switchTab(this.dataset.tab);
-        });
-    }
-
-    // Setup event listeners
-    var qEl = getElement('q');
-    if (qEl) qEl.addEventListener('input', applyFilters);
-
-    var divisionEl = getElement('division');
-    var districtEl = getElement('district');
-    var upazilaEl = getElement('upazila');
-    var levelEl = getElement('level');
-    var postEl = getElement('post');
-    var subjectEl = getElement('subject');
-
-    if (divisionEl) divisionEl.addEventListener('change', applyFilters);
-    if (districtEl) districtEl.addEventListener('change', applyFilters);
-    if (upazilaEl) upazilaEl.addEventListener('change', applyFilters);
-    if (levelEl) levelEl.addEventListener('change', applyFilters);
-    if (postEl) postEl.addEventListener('change', applyFilters);
-    if (subjectEl) subjectEl.addEventListener('change', applyFilters);
-
-    var sizeEl = getElement('size');
-    if (sizeEl) {
-        sizeEl.addEventListener('change', function() {
-            pageSize = parseInt(this.value);
-            currentPage = 1;
+    
+    document.getElementById('total').textContent = '⏳ লোডিং...';
+    document.getElementById('heroCount').textContent = '⏳';
+    
+    document.getElementById('q').addEventListener('input', applyFilters);
+    document.getElementById('division').addEventListener('change', applyFilters);
+    document.getElementById('district').addEventListener('change', applyFilters);
+    document.getElementById('upazila').addEventListener('change', applyFilters);
+    document.getElementById('level').addEventListener('change', applyFilters);
+    document.getElementById('post').addEventListener('change', applyFilters);
+    document.getElementById('subject').addEventListener('change', applyFilters);
+    
+    document.getElementById('size').addEventListener('change', function() {
+        pageSize = parseInt(this.value);
+        currentPage = 1;
+        renderTable();
+    });
+    
+    document.getElementById('prev').addEventListener('click', function() {
+        if (currentPage > 1) {
+            currentPage--;
             renderTable();
-        });
-    }
-
-    var prevEl = getElement('prev');
-    var nextEl = getElement('next');
-    if (prevEl) {
-        prevEl.addEventListener('click', function() {
-            if (currentPage > 1) {
-                currentPage--;
-                renderTable();
-            }
-        });
-    }
-    if (nextEl) {
-        nextEl.addEventListener('click', function() {
-            var store = dataStore[currentTab];
-            if (!store) return;
-            var totalPages = Math.ceil(store.filteredData.length / pageSize) || 1;
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderTable();
-            }
-        });
-    }
-
-    var resetEl = getElement('reset');
-    if (resetEl) resetEl.addEventListener('click', resetFilters);
-
-    await loadAllData();
-
+        }
+    });
+    
+    document.getElementById('next').addEventListener('click', function() {
+        const totalPages = Math.ceil(filteredData.length / pageSize);
+        if (currentPage < totalPages) {
+            currentPage++;
+            renderTable();
+        }
+    });
+    
+    document.getElementById('reset').addEventListener('click', resetFilters);
+    
+    await loadDataFromSheet();
+    
     console.log('✅ App initialized!');
 }
 
