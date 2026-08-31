@@ -77,43 +77,43 @@ function getColumnMapping(headers, tabId) {
     const mapping = tabConfig.columnMapping;
     const colMap = {};
 
-    console.log(`📋 Mapping columns for ${tabId}...`);
+    console.log('📋 Mapping columns for ' + tabId + '...');
 
-    headers.forEach((h, i) => {
+    headers.forEach(function(h, i) {
         if (!h) return;
-        const clean = h.trim();
-        const lower = clean.toLowerCase();
+        var clean = h.trim();
+        var lower = clean.toLowerCase();
 
-        Object.keys(mapping).forEach(standardCol => {
-            const expected = mapping[standardCol];
+        Object.keys(mapping).forEach(function(standardCol) {
+            var expected = mapping[standardCol];
             if (clean === expected || lower === expected.toLowerCase()) {
                 colMap[standardCol] = i;
-                console.log(`  ✓ ${standardCol} → Column ${i} ("${clean}")`);
+                console.log('  ✓ ' + standardCol + ' → Column ' + i + ' ("' + clean + '")');
             }
         });
     });
 
     // Fuzzy match for DISTRICT
     if (colMap['DISTRICT'] === undefined) {
-        headers.forEach((h, i) => {
+        headers.forEach(function(h, i) {
             if (!h) return;
-            const clean = h.trim().toLowerCase();
+            var clean = h.trim().toLowerCase();
             if (clean === 'জেলা' || clean === 'district' || clean === 'zila' || clean === 'jela') {
                 colMap['DISTRICT'] = i;
-                console.log(`  ✓ DISTRICT → Column ${i} ("${h}") [fuzzy]`);
+                console.log('  ✓ DISTRICT → Column ' + i + ' ("' + h + '") [fuzzy]');
             }
         });
     }
 
     // Fuzzy match for UPAZILLA/THANA
     if (colMap['UPAZILLA/THANA'] === undefined) {
-        headers.forEach((h, i) => {
+        headers.forEach(function(h, i) {
             if (!h) return;
-            const clean = h.trim().toLowerCase();
+            var clean = h.trim().toLowerCase();
             if (clean === 'উপজেলা' || clean === 'upazila' || clean === 'upazilla' ||
                 clean === 'উপজেলা/থানা' || clean === 'upazilla/thana' || clean === 'upuzillathana') {
                 colMap['UPAZILLA/THANA'] = i;
-                console.log(`  ✓ UPAZILLA/THANA → Column ${i} ("${h}") [fuzzy]`);
+                console.log('  ✓ UPAZILLA/THANA → Column ' + i + ' ("' + h + '") [fuzzy]');
             }
         });
     }
@@ -129,23 +129,22 @@ function switchTab(tabId) {
     if (isLoading) return;
     if (tabId === currentTab) return;
 
-    console.log(`🔄 Switching to tab: ${tabId}`);
+    console.log('🔄 Switching to tab: ' + tabId);
     currentTab = tabId;
     currentPage = 1;
 
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
     });
 
     document.getElementById('heroTitle').textContent = TABS[tabId].title;
 
-    // Hide subject filter for admin tab
-    const subjectFilter = document.getElementById('subjectFilter');
+    var subjectFilter = document.getElementById('subjectFilter');
     if (subjectFilter) {
         subjectFilter.style.display = tabId === 'admin' ? 'none' : 'block';
     }
 
-    const store = dataStore[tabId];
+    var store = dataStore[tabId];
     if (store.allData.length === 0) {
         loadDataForTab(tabId);
     } else {
@@ -154,7 +153,7 @@ function switchTab(tabId) {
 }
 
 function useDataForTab(tabId) {
-    const store = dataStore[tabId];
+    var store = dataStore[tabId];
     window.allData = store.allData;
     window.filteredData = store.filteredData;
     populateDropdowns();
@@ -164,56 +163,55 @@ function useDataForTab(tabId) {
 }
 
 async function loadDataForTab(tabId) {
-    const tabConfig = TABS[tabId];
+    var tabConfig = TABS[tabId];
     isLoading = true;
 
-    const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+    var btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
     if (btn) {
         btn.classList.add('loading');
         btn.textContent = '⏳ লোডিং...';
     }
 
     try {
-        console.log(`🔍 Fetching data from sheet: "${tabConfig.sheetName}"...`);
+        console.log('🔍 Fetching data from sheet: "' + tabConfig.sheetName + '"...');
 
-        const encodedSheetName = encodeURIComponent(tabConfig.sheetName);
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}/values/${encodedSheetName}?key=${CONFIG.API_KEY}`;
+        var encodedSheetName = encodeURIComponent(tabConfig.sheetName);
+        var url = 'https://sheets.googleapis.com/v4/spreadsheets/' + CONFIG.SPREADSHEET_ID + '/values/' + encodedSheetName + '?key=' + CONFIG.API_KEY;
 
-        const response = await fetch(url);
+        var response = await fetch(url);
 
         if (!response.ok) {
-            const errorText = await response.text();
+            var errorText = await response.text();
             console.error('❌ Error response:', errorText);
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error('HTTP ' + response.status + ': ' + response.statusText);
         }
 
-        const data = await response.json();
+        var data = await response.json();
 
         if (!data.values || data.values.length === 0) {
-            throw new Error(`No data found in sheet: ${tabConfig.sheetName}`);
+            throw new Error('No data found in sheet: ' + tabConfig.sheetName);
         }
 
-        console.log(`✅ Found ${data.values.length} rows (including header)`);
+        console.log('✅ Found ' + data.values.length + ' rows (including header)');
 
         processSheetData(data.values, tabId);
 
         if (btn) {
             btn.textContent = tabConfig.label;
             btn.classList.remove('loading');
-            // Update badge
-            const count = dataStore[tabId].allData.length;
-            btn.innerHTML = `${tabConfig.label} <span class="badge">${count}</span>`;
+            var count = dataStore[tabId].allData.length;
+            btn.innerHTML = tabConfig.label + ' <span class="badge">' + count + '</span>';
         }
 
         useDataForTab(tabId);
 
     } catch (error) {
-        console.error(`❌ Failed to load ${tabConfig.sheetName}:`, error);
+        console.error('❌ Failed to load ' + tabConfig.sheetName + ':', error);
         if (btn) {
             btn.textContent = '⚠️ ত্রুটি';
             btn.classList.remove('loading');
         }
-        showError(`"${tabConfig.sheetName}" লোড করতে ব্যর্থ: ${error.message}`);
+        showError('"' + tabConfig.sheetName + '" লোড করতে ব্যর্থ: ' + error.message);
     }
 
     isLoading = false;
@@ -223,20 +221,20 @@ async function loadDataForTab(tabId) {
 // PROCESS SHEET DATA
 // ============================================
 function processSheetData(values, tabId) {
-    const headers = values[0];
-    const rows = values.slice(1);
+    var headers = values[0];
+    var rows = values.slice(1);
 
-    console.log(`📋 Processing ${tabId} data...`);
+    console.log('📋 Processing ' + tabId + ' data...');
     console.log('📋 Headers found:', headers);
 
-    const colMap = getColumnMapping(headers, tabId);
+    var colMap = getColumnMapping(headers, tabId);
 
-    const allData = rows.map((row, idx) => {
-        const obj = {};
+    var allData = rows.map(function(row, idx) {
+        var obj = {};
 
-        Object.keys(colMap).forEach(key => {
-            const idx2 = colMap[key];
-            let val = '';
+        Object.keys(colMap).forEach(function(key) {
+            var idx2 = colMap[key];
+            var val = '';
             if (idx2 !== undefined && row && row[idx2] !== undefined && row[idx2] !== '') {
                 val = String(row[idx2]);
             }
@@ -252,25 +250,25 @@ function processSheetData(values, tabId) {
 
     dataStore[tabId] = {
         allData: allData,
-        filteredData: [...allData]
+        filteredData: allData.slice(0)
     };
 
-    console.log(`✅ ${tabId}: Processed ${allData.length} rows`);
-    console.log(`📊 Sample row:`, allData[0]);
+    console.log('✅ ' + tabId + ': Processed ' + allData.length + ' rows');
+    console.log('📊 Sample row:', allData[0]);
 }
 
 // ============================================
 // POPULATE DROPDOWNS
 // ============================================
 function populateDropdowns() {
-    const store = dataStore[currentTab];
+    var store = dataStore[currentTab];
     if (!store || store.allData.length === 0) return;
 
-    const allData = store.allData;
-    const tabConfig = TABS[currentTab];
-    const filterFields = tabConfig.filterFields;
+    var allData = store.allData;
+    var tabConfig = TABS[currentTab];
+    var filterFields = tabConfig.filterFields;
 
-    const fieldMap = {
+    var fieldMap = {
         'DIVISION': 'division',
         'DISTRICT': 'district',
         'UPAZILLA/THANA': 'upazila',
@@ -279,19 +277,28 @@ function populateDropdowns() {
         'SUBJECT': 'subject'
     };
 
-    filterFields.forEach(field => {
-        const id = fieldMap[field];
+    filterFields.forEach(function(field) {
+        var id = fieldMap[field];
         if (!id) return;
 
-        const values = [...new Set(allData.map(item => item[field]).filter(v => v && v.trim()))].sort();
+        var values = [];
+        var seen = {};
+        allData.forEach(function(item) {
+            var val = item[field];
+            if (val && val.trim() && !seen[val]) {
+                seen[val] = true;
+                values.push(val);
+            }
+        });
+        values.sort();
 
-        const select = document.getElementById(id);
+        var select = document.getElementById(id);
         if (select) {
             while (select.options.length > 1) {
                 select.remove(1);
             }
-            values.forEach(val => {
-                const option = document.createElement('option');
+            values.forEach(function(val) {
+                var option = document.createElement('option');
                 option.value = val;
                 option.textContent = val;
                 select.appendChild(option);
@@ -304,21 +311,27 @@ function populateDropdowns() {
 // UPDATE STATS
 // ============================================
 function updateStats() {
-    const store = dataStore[currentTab];
+    var store = dataStore[currentTab];
     if (!store) return;
 
-    const allData = store.allData;
-    const filteredData = store.filteredData;
+    var allData = store.allData;
+    var filteredData = store.filteredData;
 
-    const total = allData.length;
-    const filtered = filteredData.length;
+    var total = allData.length;
+    var filtered = filteredData.length;
 
     document.getElementById('total').textContent = total.toLocaleString('bn-BD');
     document.getElementById('heroCount').textContent = total.toLocaleString('bn-BD');
     document.getElementById('result').textContent = filtered.toLocaleString('bn-BD');
 
-    const districts = new Set(filteredData.map(item => item['DISTRICT']).filter(v => v && v.trim()));
-    const madrasas = new Set(filteredData.map(item => item['MADRASHA-NAME']).filter(v => v && v.trim()));
+    var districts = new Set();
+    var madrasas = new Set();
+    filteredData.forEach(function(item) {
+        var d = item['DISTRICT'];
+        var m = item['MADRASHA-NAME'];
+        if (d && d.trim()) districts.add(d);
+        if (m && m.trim()) madrasas.add(m);
+    });
 
     document.getElementById('districts').textContent = districts.size.toLocaleString('bn-BD');
     document.getElementById('madrasas').textContent = madrasas.size.toLocaleString('bn-BD');
@@ -330,30 +343,30 @@ function updateStats() {
 // RENDER TABLE
 // ============================================
 function renderTable() {
-    const store = dataStore[currentTab];
+    var store = dataStore[currentTab];
     if (!store) return;
 
-    const filteredData = store.filteredData;
-    const start = (currentPage - 1) * pageSize;
-    const end = Math.min(start + pageSize, filteredData.length);
-    const pageData = filteredData.slice(start, end);
+    var filteredData = store.filteredData;
+    var start = (currentPage - 1) * pageSize;
+    var end = Math.min(start + pageSize, filteredData.length);
+    var pageData = filteredData.slice(start, end);
 
-    const totalPages = Math.ceil(filteredData.length / pageSize);
+    var totalPages = Math.ceil(filteredData.length / pageSize) || 1;
     document.getElementById('range').textContent = filteredData.length ?
-        `(${(start + 1).toLocaleString('bn-BD')}–${end.toLocaleString('bn-BD')})` : '';
+        '(' + (start + 1).toLocaleString('bn-BD') + '–' + end.toLocaleString('bn-BD') + ')' : '';
     document.getElementById('page').textContent =
-        `পৃষ্ঠা ${currentPage.toLocaleString('bn-BD')} / ${totalPages.toLocaleString('bn-BD')}`;
+        'পৃষ্ঠা ' + currentPage.toLocaleString('bn-BD') + ' / ' + totalPages.toLocaleString('bn-BD');
     document.getElementById('prev').disabled = currentPage <= 1;
     document.getElementById('next').disabled = currentPage >= totalPages;
 
-    const tbody = document.getElementById('tbody');
+    var tbody = document.getElementById('tbody');
     tbody.innerHTML = '';
 
-    const columns = TABS[currentTab].displayColumns;
-    pageData.forEach(row => {
-        const tr = document.createElement('tr');
-        columns.forEach(col => {
-            const td = document.createElement('td');
+    var columns = TABS[currentTab].displayColumns;
+    pageData.forEach(function(row) {
+        var tr = document.createElement('tr');
+        columns.forEach(function(col) {
+            var td = document.createElement('td');
             td.textContent = row[col] || '—';
             tr.appendChild(td);
         });
@@ -365,57 +378,61 @@ function renderTable() {
 // RENDER DASHBOARD
 // ============================================
 function renderDashboard() {
-    const store = dataStore[currentTab];
+    var store = dataStore[currentTab];
     if (!store) return;
 
-    const filteredData = store.filteredData;
-    const barConfigs = TABS[currentTab].dashboardBars;
+    var filteredData = store.filteredData;
+    var barConfigs = TABS[currentTab].dashboardBars;
 
-    Object.keys(barConfigs).forEach(elementId => {
-        const field = barConfigs[elementId];
+    Object.keys(barConfigs).forEach(function(elementId) {
+        var field = barConfigs[elementId];
         renderBars(elementId, field, 8, filteredData);
     });
 }
 
-function renderBars(elementId, field, limit = 8, data) {
-    const counts = {};
-    data.forEach(item => {
-        const val = item[field];
+function renderBars(elementId, field, limit, data) {
+    limit = limit || 8;
+    var counts = {};
+    data.forEach(function(item) {
+        var val = item[field];
         if (val && val.trim()) {
             counts[val] = (counts[val] || 0) + 1;
         }
     });
 
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, limit);
-    const max = sorted[0]?.[1] || 1;
+    var sorted = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; }).slice(0, limit);
+    var max = sorted[0] ? sorted[0][1] : 1;
 
-    const container = document.getElementById(elementId);
-    container.innerHTML = sorted.map(([name, count]) => `
-        <div class="bar">
-            <div class="barline">
-                <span>${name}</span>
-                <b>${count.toLocaleString('bn-BD')}</b>
-            </div>
-            <div class="track">
-                <div class="fill" style="width: ${(count / max) * 100}%"></div>
-            </div>
-        </div>
-    `).join('');
+    var container = document.getElementById(elementId);
+    if (!container) return;
+    container.innerHTML = sorted.map(function(item) {
+        var name = item[0];
+        var count = item[1];
+        return '<div class="bar">' +
+            '<div class="barline">' +
+            '<span>' + name + '</span>' +
+            '<b>' + count.toLocaleString('bn-BD') + '</b>' +
+            '</div>' +
+            '<div class="track">' +
+            '<div class="fill" style="width: ' + ((count / max) * 100) + '%"></div>' +
+            '</div>' +
+            '</div>';
+    }).join('');
 }
 
 // ============================================
 // APPLY FILTERS
 // ============================================
 function applyFilters() {
-    const store = dataStore[currentTab];
+    var store = dataStore[currentTab];
     if (!store) return;
 
-    const allData = store.allData;
-    const searchText = document.getElementById('q').value.trim().toLowerCase();
+    var allData = store.allData;
+    var searchText = document.getElementById('q').value.trim().toLowerCase();
 
-    const filters = {};
-    const tabConfig = TABS[currentTab];
-    const fieldMap = {
+    var filters = {};
+    var tabConfig = TABS[currentTab];
+    var fieldMap = {
         'DIVISION': 'division',
         'DISTRICT': 'district',
         'UPAZILLA/THANA': 'upazila',
@@ -424,25 +441,14 @@ function applyFilters() {
         'SUBJECT': 'subject'
     };
 
-    tabConfig.filterFields.forEach(field => {
-        const id = fieldMap[field];
+    tabConfig.filterFields.forEach(function(field) {
+        var id = fieldMap[field];
         if (id) {
             filters[field] = document.getElementById(id).value;
         }
     });
 
-    store.filteredData = allData.filter(item => {
+    store.filteredData = allData.filter(function(item) {
         if (searchText) {
-            const searchableFields = ['EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
-            if (item['SUBJECT']) searchableFields.push('SUBJECT');
-
-            const searchable = searchableFields
-                .map(field => item[field] || '')
-                .join(' ')
-                .toLowerCase();
-
-            if (!searchable.includes(searchText)) return false;
-        }
-
-        for (const [field, value] of Object.entries(filters)) {
-            if (value && item[field]
+            var searchableFields = ['EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
+            if (item['SUBJECT'])
