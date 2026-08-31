@@ -1,7 +1,7 @@
 // ============================================
 // GOOGLE SHEETS CONFIGURATION
 // ============================================
-const CONFIG = {
+var CONFIG = {
     API_KEY: 'AIzaSyCQFgrkG6snidiKMwbYxveVv0ny7wNcn-E',
     SPREADSHEET_ID: '1O5swZSBsdhwv1GnvVGJB_chDZ8a4uAGQtO8UwKSZ1gc'
 };
@@ -9,7 +9,7 @@ const CONFIG = {
 // ============================================
 // TAB CONFIGURATION
 // ============================================
-const TABS = {
+var TABS = {
     'vacancy': {
         sheetName: 'Madrasah Vacancy',
         label: 'শিক্ষক শূন্যপদ',
@@ -60,62 +60,78 @@ const TABS = {
 // ============================================
 // GLOBAL DATA STORE
 // ============================================
-let dataStore = {
+var dataStore = {
     'vacancy': { allData: [], filteredData: [] },
     'admin': { allData: [], filteredData: [] }
 };
-let currentTab = 'vacancy';
-let currentPage = 1;
-let pageSize = 25;
-let isLoading = false;
+var currentTab = 'vacancy';
+var currentPage = 1;
+var pageSize = 25;
+var isLoading = false;
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+function getElement(id) {
+    var el = document.getElementById(id);
+    if (!el) {
+        console.warn('Element not found: #' + id);
+    }
+    return el;
+}
 
 // ============================================
 // COLUMN NAME MAPPING
 // ============================================
 function getColumnMapping(headers, tabId) {
-    const tabConfig = TABS[tabId];
-    const mapping = tabConfig.columnMapping;
-    const colMap = {};
+    var tabConfig = TABS[tabId];
+    var mapping = tabConfig.columnMapping;
+    var colMap = {};
 
     console.log('📋 Mapping columns for ' + tabId + '...');
 
-    headers.forEach(function(h, i) {
-        if (!h) return;
+    for (var i = 0; i < headers.length; i++) {
+        var h = headers[i];
+        if (!h) continue;
         var clean = h.trim();
         var lower = clean.toLowerCase();
 
-        Object.keys(mapping).forEach(function(standardCol) {
-            var expected = mapping[standardCol];
-            if (clean === expected || lower === expected.toLowerCase()) {
-                colMap[standardCol] = i;
-                console.log('  ✓ ' + standardCol + ' → Column ' + i + ' ("' + clean + '")');
+        for (var standardCol in mapping) {
+            if (mapping.hasOwnProperty(standardCol)) {
+                var expected = mapping[standardCol];
+                if (clean === expected || lower === expected.toLowerCase()) {
+                    colMap[standardCol] = i;
+                    console.log('  ✓ ' + standardCol + ' → Column ' + i + ' ("' + clean + '")');
+                }
             }
-        });
-    });
+        }
+    }
 
     // Fuzzy match for DISTRICT
     if (colMap['DISTRICT'] === undefined) {
-        headers.forEach(function(h, i) {
-            if (!h) return;
+        for (var i = 0; i < headers.length; i++) {
+            var h = headers[i];
+            if (!h) continue;
             var clean = h.trim().toLowerCase();
             if (clean === 'জেলা' || clean === 'district' || clean === 'zila' || clean === 'jela') {
                 colMap['DISTRICT'] = i;
                 console.log('  ✓ DISTRICT → Column ' + i + ' ("' + h + '") [fuzzy]');
             }
-        });
+        }
     }
 
     // Fuzzy match for UPAZILLA/THANA
     if (colMap['UPAZILLA/THANA'] === undefined) {
-        headers.forEach(function(h, i) {
-            if (!h) return;
+        for (var i = 0; i < headers.length; i++) {
+            var h = headers[i];
+            if (!h) continue;
             var clean = h.trim().toLowerCase();
             if (clean === 'উপজেলা' || clean === 'upazila' || clean === 'upazilla' ||
                 clean === 'উপজেলা/থানা' || clean === 'upazilla/thana' || clean === 'upuzillathana') {
                 colMap['UPAZILLA/THANA'] = i;
                 console.log('  ✓ UPAZILLA/THANA → Column ' + i + ' ("' + h + '") [fuzzy]');
             }
-        });
+        }
     }
 
     console.log('🗺️ Final Column Mapping:', colMap);
@@ -133,13 +149,20 @@ function switchTab(tabId) {
     currentTab = tabId;
     currentPage = 1;
 
-    document.querySelectorAll('.tab-btn').forEach(function(btn) {
-        btn.classList.toggle('active', btn.dataset.tab === tabId);
-    });
+    var buttons = document.querySelectorAll('.tab-btn');
+    for (var i = 0; i < buttons.length; i++) {
+        var btn = buttons[i];
+        if (btn.dataset.tab === tabId) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    }
 
-    document.getElementById('heroTitle').textContent = TABS[tabId].title;
+    var heroTitle = getElement('heroTitle');
+    if (heroTitle) heroTitle.textContent = TABS[tabId].title;
 
-    var subjectFilter = document.getElementById('subjectFilter');
+    var subjectFilter = getElement('subjectFilter');
     if (subjectFilter) {
         subjectFilter.style.display = tabId === 'admin' ? 'none' : 'block';
     }
@@ -229,24 +252,28 @@ function processSheetData(values, tabId) {
 
     var colMap = getColumnMapping(headers, tabId);
 
-    var allData = rows.map(function(row, idx) {
+    var allData = [];
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
         var obj = {};
 
-        Object.keys(colMap).forEach(function(key) {
-            var idx2 = colMap[key];
-            var val = '';
-            if (idx2 !== undefined && row && row[idx2] !== undefined && row[idx2] !== '') {
-                val = String(row[idx2]);
+        for (var key in colMap) {
+            if (colMap.hasOwnProperty(key)) {
+                var idx = colMap[key];
+                var val = '';
+                if (idx !== undefined && row && row[idx] !== undefined && row[idx] !== '') {
+                    val = String(row[idx]);
+                }
+                obj[key] = val;
             }
-            obj[key] = val;
-        });
-
-        if (!obj['SL']) {
-            obj['SL'] = String(idx + 1);
         }
 
-        return obj;
-    });
+        if (!obj['SL']) {
+            obj['SL'] = String(i + 1);
+        }
+
+        allData.push(obj);
+    }
 
     dataStore[tabId] = {
         allData: allData,
@@ -254,7 +281,9 @@ function processSheetData(values, tabId) {
     };
 
     console.log('✅ ' + tabId + ': Processed ' + allData.length + ' rows');
-    console.log('📊 Sample row:', allData[0]);
+    if (allData.length > 0) {
+        console.log('📊 Sample row:', allData[0]);
+    }
 }
 
 // ============================================
@@ -277,34 +306,35 @@ function populateDropdowns() {
         'SUBJECT': 'subject'
     };
 
-    filterFields.forEach(function(field) {
+    for (var f = 0; f < filterFields.length; f++) {
+        var field = filterFields[f];
         var id = fieldMap[field];
-        if (!id) return;
+        if (!id) continue;
 
         var values = [];
         var seen = {};
-        allData.forEach(function(item) {
-            var val = item[field];
+        for (var i = 0; i < allData.length; i++) {
+            var val = allData[i][field];
             if (val && val.trim() && !seen[val]) {
                 seen[val] = true;
                 values.push(val);
             }
-        });
+        }
         values.sort();
 
-        var select = document.getElementById(id);
+        var select = getElement(id);
         if (select) {
             while (select.options.length > 1) {
                 select.remove(1);
             }
-            values.forEach(function(val) {
+            for (var v = 0; v < values.length; v++) {
                 var option = document.createElement('option');
-                option.value = val;
-                option.textContent = val;
+                option.value = values[v];
+                option.textContent = values[v];
                 select.appendChild(option);
-            });
+            }
         }
-    });
+    }
 }
 
 // ============================================
@@ -320,23 +350,30 @@ function updateStats() {
     var total = allData.length;
     var filtered = filteredData.length;
 
-    document.getElementById('total').textContent = total.toLocaleString('bn-BD');
-    document.getElementById('heroCount').textContent = total.toLocaleString('bn-BD');
-    document.getElementById('result').textContent = filtered.toLocaleString('bn-BD');
+    var totalEl = getElement('total');
+    var heroCountEl = getElement('heroCount');
+    var resultEl = getElement('result');
+    if (totalEl) totalEl.textContent = total.toLocaleString('bn-BD');
+    if (heroCountEl) heroCountEl.textContent = total.toLocaleString('bn-BD');
+    if (resultEl) resultEl.textContent = filtered.toLocaleString('bn-BD');
 
     var districts = new Set();
     var madrasas = new Set();
-    filteredData.forEach(function(item) {
-        var d = item['DISTRICT'];
-        var m = item['MADRASHA-NAME'];
+    for (var i = 0; i < filteredData.length; i++) {
+        var d = filteredData[i]['DISTRICT'];
+        var m = filteredData[i]['MADRASHA-NAME'];
         if (d && d.trim()) districts.add(d);
         if (m && m.trim()) madrasas.add(m);
-    });
+    }
 
-    document.getElementById('districts').textContent = districts.size.toLocaleString('bn-BD');
-    document.getElementById('madrasas').textContent = madrasas.size.toLocaleString('bn-BD');
-    document.getElementById('heroDistrict').textContent = districts.size.toLocaleString('bn-BD');
-    document.getElementById('heroMadrasa').textContent = madrasas.size.toLocaleString('bn-BD');
+    var districtsEl = getElement('districts');
+    var madrasasEl = getElement('madrasas');
+    var heroDistrictEl = getElement('heroDistrict');
+    var heroMadrasaEl = getElement('heroMadrasa');
+    if (districtsEl) districtsEl.textContent = districts.size.toLocaleString('bn-BD');
+    if (madrasasEl) madrasasEl.textContent = madrasas.size.toLocaleString('bn-BD');
+    if (heroDistrictEl) heroDistrictEl.textContent = districts.size.toLocaleString('bn-BD');
+    if (heroMadrasaEl) heroMadrasaEl.textContent = madrasas.size.toLocaleString('bn-BD');
 }
 
 // ============================================
@@ -352,26 +389,38 @@ function renderTable() {
     var pageData = filteredData.slice(start, end);
 
     var totalPages = Math.ceil(filteredData.length / pageSize) || 1;
-    document.getElementById('range').textContent = filteredData.length ?
-        '(' + (start + 1).toLocaleString('bn-BD') + '–' + end.toLocaleString('bn-BD') + ')' : '';
-    document.getElementById('page').textContent =
-        'পৃষ্ঠা ' + currentPage.toLocaleString('bn-BD') + ' / ' + totalPages.toLocaleString('bn-BD');
-    document.getElementById('prev').disabled = currentPage <= 1;
-    document.getElementById('next').disabled = currentPage >= totalPages;
 
-    var tbody = document.getElementById('tbody');
+    var rangeEl = getElement('range');
+    var pageEl = getElement('page');
+    var prevEl = getElement('prev');
+    var nextEl = getElement('next');
+
+    if (rangeEl) {
+        rangeEl.textContent = filteredData.length ?
+            '(' + (start + 1).toLocaleString('bn-BD') + '–' + end.toLocaleString('bn-BD') + ')' : '';
+    }
+    if (pageEl) {
+        pageEl.textContent = 'পৃষ্ঠা ' + currentPage.toLocaleString('bn-BD') + ' / ' + totalPages.toLocaleString('bn-BD');
+    }
+    if (prevEl) prevEl.disabled = currentPage <= 1;
+    if (nextEl) nextEl.disabled = currentPage >= totalPages;
+
+    var tbody = getElement('tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
 
     var columns = TABS[currentTab].displayColumns;
-    pageData.forEach(function(row) {
+    for (var i = 0; i < pageData.length; i++) {
+        var row = pageData[i];
         var tr = document.createElement('tr');
-        columns.forEach(function(col) {
+        for (var c = 0; c < columns.length; c++) {
+            var col = columns[c];
             var td = document.createElement('td');
             td.textContent = row[col] || '—';
             tr.appendChild(td);
-        });
+        }
         tbody.appendChild(tr);
-    });
+    }
 }
 
 // ============================================
@@ -384,40 +433,46 @@ function renderDashboard() {
     var filteredData = store.filteredData;
     var barConfigs = TABS[currentTab].dashboardBars;
 
-    Object.keys(barConfigs).forEach(function(elementId) {
-        var field = barConfigs[elementId];
-        renderBars(elementId, field, 8, filteredData);
-    });
+    for (var elementId in barConfigs) {
+        if (barConfigs.hasOwnProperty(elementId)) {
+            var field = barConfigs[elementId];
+            renderBars(elementId, field, 8, filteredData);
+        }
+    }
 }
 
 function renderBars(elementId, field, limit, data) {
     limit = limit || 8;
     var counts = {};
-    data.forEach(function(item) {
-        var val = item[field];
+    for (var i = 0; i < data.length; i++) {
+        var val = data[i][field];
         if (val && val.trim()) {
             counts[val] = (counts[val] || 0) + 1;
         }
-    });
+    }
 
     var sorted = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; }).slice(0, limit);
-    var max = sorted[0] ? sorted[0][1] : 1;
+    var max = sorted.length > 0 ? sorted[0][1] : 1;
 
-    var container = document.getElementById(elementId);
+    var container = getElement(elementId);
     if (!container) return;
-    container.innerHTML = sorted.map(function(item) {
-        var name = item[0];
-        var count = item[1];
-        return '<div class="bar">' +
+
+    var html = '';
+    for (var i = 0; i < sorted.length; i++) {
+        var name = sorted[i][0];
+        var count = sorted[i][1];
+        var width = (count / max) * 100;
+        html += '<div class="bar">' +
             '<div class="barline">' +
             '<span>' + name + '</span>' +
             '<b>' + count.toLocaleString('bn-BD') + '</b>' +
             '</div>' +
             '<div class="track">' +
-            '<div class="fill" style="width: ' + ((count / max) * 100) + '%"></div>' +
+            '<div class="fill" style="width: ' + width + '%;"></div>' +
             '</div>' +
             '</div>';
-    }).join('');
+    }
+    container.innerHTML = html;
 }
 
 // ============================================
@@ -428,7 +483,8 @@ function applyFilters() {
     if (!store) return;
 
     var allData = store.allData;
-    var searchText = document.getElementById('q').value.trim().toLowerCase();
+    var searchInput = getElement('q');
+    var searchText = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
     var filters = {};
     var tabConfig = TABS[currentTab];
@@ -441,14 +497,186 @@ function applyFilters() {
         'SUBJECT': 'subject'
     };
 
-    tabConfig.filterFields.forEach(function(field) {
+    for (var f = 0; f < tabConfig.filterFields.length; f++) {
+        var field = tabConfig.filterFields[f];
         var id = fieldMap[field];
         if (id) {
-            filters[field] = document.getElementById(id).value;
+            var el = getElement(id);
+            filters[field] = el ? el.value : '';
         }
-    });
+    }
 
     store.filteredData = allData.filter(function(item) {
         if (searchText) {
             var searchableFields = ['EIIN', 'MADRASHA-NAME', 'LEVEL', 'POST-NAME', 'DIVISION', 'DISTRICT', 'UPAZILLA/THANA'];
-            if (item['SUBJECT'])
+            if (item['SUBJECT']) searchableFields.push('SUBJECT');
+
+            var searchable = '';
+            for (var s = 0; s < searchableFields.length; s++) {
+                searchable += (item[searchableFields[s]] || '') + ' ';
+            }
+            searchable = searchable.toLowerCase();
+
+            if (searchable.indexOf(searchText) === -1) return false;
+        }
+
+        for (var field in filters) {
+            if (filters.hasOwnProperty(field)) {
+                var value = filters[field];
+                if (value && item[field] !== value) return false;
+            }
+        }
+
+        return true;
+    });
+
+    currentPage = 1;
+    updateStats();
+    renderTable();
+    renderDashboard();
+}
+
+// ============================================
+// SHOW ERROR MESSAGE
+// ============================================
+function showError(message) {
+    console.error('🚨 Error:', message);
+
+    var totalEl = getElement('total');
+    var heroCountEl = getElement('heroCount');
+    if (totalEl) totalEl.textContent = 'Error';
+    if (heroCountEl) heroCountEl.textContent = '⚠️';
+
+    var tbody = getElement('tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;font-family:monospace;">' +
+        '<strong style="color:#c53030;font-size:18px;">❌ ডাটা লোড করতে ব্যর্থ হয়েছে</strong><br>' +
+        '<span style="color:#718096;font-size:14px;display:block;margin-top:10px;">' + message + '</span>' +
+        '</td></tr>';
+}
+
+// ============================================
+// RESET ALL FILTERS
+// ============================================
+function resetFilters() {
+    var tabConfig = TABS[currentTab];
+    var fieldMap = {
+        'DIVISION': 'division',
+        'DISTRICT': 'district',
+        'UPAZILLA/THANA': 'upazila',
+        'LEVEL': 'level',
+        'POST-NAME': 'post',
+        'SUBJECT': 'subject'
+    };
+
+    var qEl = getElement('q');
+    if (qEl) qEl.value = '';
+
+    for (var f = 0; f < tabConfig.filterFields.length; f++) {
+        var field = tabConfig.filterFields[f];
+        var id = fieldMap[field];
+        if (id) {
+            var el = getElement(id);
+            if (el) el.value = '';
+        }
+    }
+
+    applyFilters();
+}
+
+// ============================================
+// LOAD ALL DATA
+// ============================================
+async function loadAllData() {
+    console.log('🚀 Loading all tabs...');
+
+    await loadDataForTab('vacancy');
+
+    loadDataForTab('admin').then(function() {
+        console.log('✅ All tabs loaded!');
+        var adminBtn = document.querySelector('.tab-btn[data-tab="admin"]');
+        if (adminBtn && dataStore.admin.allData.length > 0) {
+            adminBtn.innerHTML = 'অধ্যক্ষ উপাধ্যক্ষ সুপার সহসুপার <span class="badge">' + dataStore.admin.allData.length + '</span>';
+        }
+    });
+}
+
+// ============================================
+// INITIALIZE APP
+// ============================================
+async function init() {
+    console.log('🚀 App starting...');
+
+    var totalEl = getElement('total');
+    var heroCountEl = getElement('heroCount');
+    if (totalEl) totalEl.textContent = '⏳ লোডিং...';
+    if (heroCountEl) heroCountEl.textContent = '⏳';
+
+    // Setup tab switching
+    var tabButtons = document.querySelectorAll('.tab-btn');
+    for (var i = 0; i < tabButtons.length; i++) {
+        var btn = tabButtons[i];
+        btn.addEventListener('click', function() {
+            switchTab(this.dataset.tab);
+        });
+    }
+
+    // Setup event listeners
+    var qEl = getElement('q');
+    if (qEl) qEl.addEventListener('input', applyFilters);
+
+    var divisionEl = getElement('division');
+    var districtEl = getElement('district');
+    var upazilaEl = getElement('upazila');
+    var levelEl = getElement('level');
+    var postEl = getElement('post');
+    var subjectEl = getElement('subject');
+
+    if (divisionEl) divisionEl.addEventListener('change', applyFilters);
+    if (districtEl) districtEl.addEventListener('change', applyFilters);
+    if (upazilaEl) upazilaEl.addEventListener('change', applyFilters);
+    if (levelEl) levelEl.addEventListener('change', applyFilters);
+    if (postEl) postEl.addEventListener('change', applyFilters);
+    if (subjectEl) subjectEl.addEventListener('change', applyFilters);
+
+    var sizeEl = getElement('size');
+    if (sizeEl) {
+        sizeEl.addEventListener('change', function() {
+            pageSize = parseInt(this.value);
+            currentPage = 1;
+            renderTable();
+        });
+    }
+
+    var prevEl = getElement('prev');
+    var nextEl = getElement('next');
+    if (prevEl) {
+        prevEl.addEventListener('click', function() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        });
+    }
+    if (nextEl) {
+        nextEl.addEventListener('click', function() {
+            var store = dataStore[currentTab];
+            if (!store) return;
+            var totalPages = Math.ceil(store.filteredData.length / pageSize) || 1;
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        });
+    }
+
+    var resetEl = getElement('reset');
+    if (resetEl) resetEl.addEventListener('click', resetFilters);
+
+    await loadAllData();
+
+    console.log('✅ App initialized!');
+}
+
+// Start the app
+init();
